@@ -12,9 +12,15 @@ from typing import Any
 import voluptuous as vol
 
 from homeassistant import config_entries
-from homeassistant.data_entry_flow import FlowResult
 
 from .const import CONF_TOPIC_PREFIX, DEFAULT_TOPIC_PREFIX, DOMAIN
+
+# `homeassistant.data_entry_flow.FlowResult` was removed in favour of
+# `config_entries.ConfigFlowResult` — referencing it via the already-imported
+# `config_entries` module (rather than a separate top-level import) means
+# this annotation-only reference can't itself raise ImportError on an older
+# or newer Home Assistant core; `from __future__ import annotations` above
+# also means it's never evaluated at runtime either way.
 
 
 class MowglinextConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
@@ -22,7 +28,9 @@ class MowglinextConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
     VERSION = 1
 
-    async def async_step_user(self, user_input: dict[str, Any] | None = None) -> FlowResult:
+    async def async_step_user(
+        self, user_input: dict[str, Any] | None = None
+    ) -> config_entries.ConfigFlowResult:
         # `"mqtt" in hass.config.components` is true once the mqtt
         # integration has finished setup — a broker being reachable is a
         # separate question the hub surfaces later via <prefix>/available,
