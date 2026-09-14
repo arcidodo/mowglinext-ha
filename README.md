@@ -1,0 +1,76 @@
+# MowgliNext for Home Assistant
+
+A HACS-installable Home Assistant integration for [MowgliNext](https://github.com/mowglinext/mowglinext),
+an open-source autonomous robot mower. Talks to the mower over MQTT — see
+[`docs/MQTT_CONTROL.md`](https://github.com/mowglinext/mowglinext/blob/main/docs/MQTT_CONTROL.md)
+in the main repo for the full wire contract this integration is built against. That is the
+stable, versioned surface; this integration deliberately does **not** talk to the mower's
+internal `:4006` REST/WebSocket API (unauthenticated, unversioned, an implementation detail of
+the mower's own web UI) or its separate embedded MQTT broker.
+
+## Requirements
+
+- Home Assistant's own **MQTT** integration, already set up and connected to a broker your
+  mower's `mqtt_bridge_node` also publishes to. That can be the mower's own bundled broker
+  (`mowgli-mqtt`, reachable at `<mower-ip>:1883` on your LAN by default) or a broker of your own
+  — either way, point HA's MQTT integration and the mower's `mqtt_host` setting at the *same*
+  broker.
+- `mqtt_bridge_node` enabled on the mower — off by default. On the mower's own GUI:
+  **Settings → MQTT / Home Assistant**.
+
+## Installation
+
+### Via HACS (once you've published this repo)
+1. HACS → Integrations → ⋮ → Custom repositories → add this repo's URL, category "Integration".
+2. Install "MowgliNext", restart Home Assistant.
+
+### Manual (for local testing — no repo or HACS needed)
+Copy `custom_components/mowglinext/` into your Home Assistant config directory's
+`custom_components/` folder and restart Home Assistant.
+
+## Setup
+
+Settings → Devices & services → Add integration → **MowgliNext** → enter the MQTT topic prefix
+(default `mowgli`, matching the mower's own default — only change it if you changed it on the
+mower too).
+
+## What you get
+
+- A `lawn_mower` entity — start / pause / dock — mapped from `<prefix>/high_level_status`.
+- Diagnostic sensors: battery %, coverage %, GPS quality %, and the raw BT state name.
+- An `binary_sensor` for the emergency latch, and a "Reset emergency" button.
+- A `device_tracker` entity backed by `<prefix>/gps` (real lat/lon), so the mower can show up
+  on a Home Assistant map — not `<prefix>/position`, which is in the mower's local odom frame.
+- Availability tracking via `<prefix>/available`, so "offline" is distinguishable from "online
+  but stuck".
+
+## Limitations
+
+- `HighLevelStatus` has more states than Home Assistant's `lawn_mower` domain can express (no
+  native "recording" or "manual mowing" activity) — the raw `state_name`/`sub_state_name` survive
+  as `lawn_mower` attributes and on the diagnostic "State" sensor for anyone who needs the exact
+  substate.
+- Commands are fire-and-forget over MQTT — there is no acknowledgement. The `lawn_mower` entity
+  updates once the next `high_level_status` payload arrives (up to `publish_rate`, 1 Hz by
+  default, after the command is sent), not instantly.
+- `COMMAND_RESET_EMERGENCY` (254) is not currently wired to anything on the mower's MQTT command
+  channel as of this writing — see `docs/MQTT_CONTROL.md` in the main repo. The button is
+  provided for forward-compatibility, not because it's known to work today.
+- No authentication is enforced on the wire by default (matching the mower's own bundled
+  broker) — treat the broker like any other device on your trusted LAN.
+
+## Development / testing
+
+```bash
+pip install -r requirements_test.txt
+pytest
+```
+
+The tests in `tests/` are written against `pytest-homeassistant-custom-component`'s conventions
+but have not been run in the environment that generated this scaffold (no network access to
+install Home Assistant's test harness there) — run them yourself before relying on them, and
+expect minor fixture-name adjustments across Home Assistant versions.
+
+## License
+
+GPL-3.0, matching the main [MowgliNext](https://github.com/mowglinext/mowglinext) project.

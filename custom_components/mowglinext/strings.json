@@ -1,0 +1,20 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Connect to MowgliNext",
+        "description": "Enter the MQTT topic prefix mqtt_bridge_node publishes on (default \"mowgli\" — see docs/MQTT_CONTROL.md in the mowglinext repo). The broker itself is configured once in Home Assistant's own MQTT integration, not here.",
+        "data": {
+          "topic_prefix": "MQTT topic prefix"
+        }
+      }
+    },
+    "abort": {
+      "mqtt_not_configured": "Set up the MQTT integration first (Settings → Devices & services → Add integration → MQTT).",
+      "already_configured": "This topic prefix is already configured."
+    },
+    "error": {
+      "invalid_prefix": "Enter a non-empty topic prefix."
+    }
+  }
+}
