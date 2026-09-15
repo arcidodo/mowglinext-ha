@@ -24,6 +24,7 @@ async def async_setup_entry(
             MowglinextBatterySensor(hub),
             MowglinextCoverageSensor(hub),
             MowglinextGpsQualitySensor(hub),
+            MowglinextRtkStatusSensor(hub),
             MowglinextStateSensor(hub),
         ]
     )
@@ -76,6 +77,54 @@ class MowglinextGpsQualitySensor(_HighLevelStatusSensor):
     def __init__(self, hub: MowglinextHub) -> None:
         super().__init__(hub)
         self._attr_unique_id = f"{hub.device_id}_gps_quality"
+
+
+# <prefix>/rtk_status's fix_type_name values (mowgli_interfaces/msg/GnssStatus,
+# see docs/MQTT_CONTROL.md) mapped to a friendlier label for the ENUM sensor
+# below. "UNKNOWN" (an out-of-range value) is deliberately not listed as an
+# option -- native_value falls back to None for it rather than lying with a
+# fabricated label.
+_RTK_STATUS_LABELS: dict[str, str] = {
+    "NO_FIX": "No fix",
+    "GPS_FIX": "GPS fix",
+    "RTK_FLOAT": "RTK float",
+    "RTK_FIXED": "RTK fixed",
+    "DEAD_RECKONING": "Dead reckoning",
+}
+
+
+class MowglinextRtkStatusSensor(MowglinextEntity, SensorEntity):
+    """The same RTK fix classification the robot's own LED ring and GUI use
+    (<prefix>/rtk_status, relayed from mowgli_interfaces/msg/GnssStatus) --
+    not a lossy re-derivation, so this can never show something the robot
+    itself disagrees with.
+    """
+
+    _attr_name = "RTK status"
+    _attr_device_class = SensorDeviceClass.ENUM
+    _attr_options = list(_RTK_STATUS_LABELS.values())
+    _attr_icon = "mdi:satellite-variant"
+    _topic_key = "rtk_status"
+
+    def __init__(self, hub: MowglinextHub) -> None:
+        super().__init__(hub)
+        self._attr_unique_id = f"{hub.device_id}_rtk_status"
+
+    @property
+    def native_value(self) -> str | None:
+        rtk = self.hub.data.get("rtk_status") or {}
+        if not rtk.get("fix_valid"):
+            return "No fix"
+        return _RTK_STATUS_LABELS.get(rtk.get("fix_type_name"))
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        rtk = self.hub.data.get("rtk_status") or {}
+        return {
+            "quality_percent": rtk.get("quality_percent"),
+            "rtk_mode_name": rtk.get("rtk_mode_name"),
+            "fix_valid": rtk.get("fix_valid"),
+        }
 
 
 class MowglinextStateSensor(_HighLevelStatusSensor):

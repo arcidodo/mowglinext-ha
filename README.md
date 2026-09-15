@@ -43,7 +43,9 @@ mower too).
 ## What you get
 
 - A `lawn_mower` entity — start / pause / dock — mapped from `<prefix>/high_level_status`.
-- Diagnostic sensors: battery %, coverage %, GPS quality %, and the raw BT state name.
+- Diagnostic sensors: battery %, coverage %, GPS quality %, RTK status (No fix / GPS fix / RTK
+  float / RTK fixed — the same classification the robot's own LED ring and GUI use, not a
+  re-derivation), and the raw BT state name.
 - An `binary_sensor` for the emergency latch, and a "Reset emergency" button.
 - A `device_tracker` entity backed by `<prefix>/gps` (real lat/lon), so the mower can show up
   on a Home Assistant map — not `<prefix>/position`, which is in the mower's local odom frame.
