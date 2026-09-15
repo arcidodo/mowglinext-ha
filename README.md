@@ -18,6 +18,12 @@ the mower's own web UI) or its separate embedded MQTT broker.
 - `mqtt_bridge_node` enabled on the mower — off by default. On the mower's own GUI:
   **Settings → MQTT / Home Assistant**.
 
+The brand icon (`custom_components/mowglinext/brand/`) needs Home Assistant **2026.3+** to
+display (the [brands proxy API](https://developers.home-assistant.io/blog/2026/02/24/brands-proxy-api)
+that lets a custom integration serve its own icon locally, instead of requiring a PR to
+`home-assistant/brands`). On older Home Assistant versions the integration still works
+identically — you just get a generic icon in the integration list instead of the mower icon.
+
 ## Installation
 
 ### Via HACS (once you've published this repo)
