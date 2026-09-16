@@ -31,11 +31,24 @@ class MowglinextConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
     ) -> config_entries.ConfigFlowResult:
-        # `"mqtt" in hass.config.components` is true once the mqtt
-        # integration has finished setup — a broker being reachable is a
-        # separate question the hub surfaces later via <prefix>/available,
-        # since a broker that is merely slow to answer shouldn't block setup.
-        if "mqtt" not in self.hass.config.components:
+        # NOT `"mqtt" not in hass.config.components` -- that's true almost
+        # immediately regardless of whether the user ever configured a
+        # broker, because we declare "mqtt" in manifest.json's
+        # `dependencies`: Home Assistant sets a declared dependency up
+        # (empty/default config, no config entry) before running our flow
+        # at all, precisely so a flow CAN assume the dependency's helpers
+        # are importable/usable. That check can never fire once we depend
+        # on mqtt, in production or in tests -- confirmed by
+        # test_abort_when_mqtt_not_configured failing against a bare `hass`
+        # fixture with no mqtt config entry at all.
+        #
+        # The real question is whether the user has actually gone through
+        # Settings -> Add integration -> MQTT and pointed it at a broker,
+        # which is exactly what a config entry for the "mqtt" domain
+        # existing means. A broker being reachable is a separate question
+        # the hub surfaces later via <prefix>/available -- a broker that's
+        # merely slow to answer shouldn't block setup here.
+        if not self.hass.config_entries.async_entries("mqtt"):
             return self.async_abort(reason="mqtt_not_configured")
 
         errors: dict[str, str] = {}

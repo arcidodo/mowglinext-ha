@@ -1,8 +1,7 @@
 """Tests for the lawn_mower entity's activity mapping and command publishing.
 
-Same caveat as test_config_flow.py: written against
-pytest-homeassistant-custom-component conventions, not executed in this
-environment. Run `pip install -r requirements_test.txt && pytest`.
+Verified against a real pytest-homeassistant-custom-component run in CI
+(.github/workflows/test.yml).
 """
 import json
 
@@ -79,6 +78,14 @@ async def test_activity_mapping_and_availability(hass: HomeAssistant, mqtt_mock)
 async def test_start_mowing_publishes_command(hass: HomeAssistant, mqtt_mock) -> None:
     await _setup_entry(hass, mqtt_mock)
     async_fire_mqtt_message(hass, "mowgli/available", "online")
+    # The coordinator's freshness watchdog (coordinator.py) requires BOTH the
+    # LWT ("available") AND a recent high_level_status heartbeat before the
+    # entity reports itself available -- Home Assistant does not invoke a
+    # service method on an unavailable entity, so without this the
+    # start_mowing call below silently never reaches async_start_mowing().
+    async_fire_mqtt_message(
+        hass, "mowgli/high_level_status", json.dumps({"state": 1, "state_name": "IDLE"})
+    )
     await hass.async_block_till_done()
 
     await hass.services.async_call(
