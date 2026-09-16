@@ -49,6 +49,13 @@ mower too).
 - An `binary_sensor` for the emergency latch, and a "Reset emergency" button.
 - A `device_tracker` entity backed by `<prefix>/gps` (real lat/lon), so the mower can show up
   on a Home Assistant map — not `<prefix>/position`, which is in the mower's local odom frame.
+- A `select` entity ("Start area") listing your recorded mow areas by name — pick one to start
+  mowing it now, ahead of the normal iteration order. Backed by `<prefix>/areas`/`<prefix>/start_area`
+  (**requires mowglinext PR [#638](https://github.com/mowglinext/mowglinext/pull/638)**). Areas have
+  no stable ID yet ([mowglinext#637](https://github.com/mowglinext/mowglinext/issues/637)), so this
+  always re-resolves the area's index from the freshest list at the moment you pick it — never a
+  value cached from when the dropdown was built — and refuses (with a visible error) rather than
+  risk starting the wrong area if the name has since disappeared from the list.
 - Availability tracking via `<prefix>/available` (the broker's own Last Will and Testament) **and**
   a freshness watchdog on `<prefix>/high_level_status`: that topic is republished at a steady ~1 Hz
   by the mower's behavior tree, so if no update arrives for 10 seconds the integration marks itself

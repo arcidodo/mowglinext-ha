@@ -34,8 +34,14 @@ JSON_TOPICS: tuple[str, ...] = (
     "high_level_status",
     "gps",
     "rtk_status",
+    "areas",
     "diagnostics",
 )
+
+# <prefix>/areas is a JSON *array* ([{"index":..,"name":..}, ...]), unlike
+# every other JSON_TOPICS entry which is an object -- give it a matching
+# empty-list default instead of the generic {} below.
+_JSON_TOPIC_DEFAULTS: dict[str, Any] = {"areas": []}
 
 # The behavior tree republishes <prefix>/high_level_status at a steady ~1 Hz
 # cadence UNCONDITIONALLY (not just on change) as long as the BT and the MQTT
@@ -65,7 +71,9 @@ class MowglinextHub:
         # 0.0 (never seen) is always considered stale by _is_fresh() below.
         self._last_heartbeat = 0.0
         self._was_available = False
-        self.data: dict[str, Any] = {name: {} for name in JSON_TOPICS}
+        self.data: dict[str, Any] = {
+            name: _JSON_TOPIC_DEFAULTS.get(name, {}) for name in JSON_TOPICS
+        }
         self._listeners: dict[str, list[Callable[[], None]]] = {}
         self._unsubscribes: list[Callable[[], None]] = []
 
@@ -205,3 +213,15 @@ class MowglinextHub:
         high_level_status payload.
         """
         await mqtt.async_publish(self.hass, self._topic("command"), str(int(command)))
+
+    async def async_start_area(self, index: int) -> None:
+        """Fire-and-forget: start mowing the recorded area at `index` now.
+
+        `index` is a raw, purely positional index into map_server_node's
+        area list -- there is no stable per-area id yet (mowglinext#637).
+        Callers MUST resolve it from the freshest `<prefix>/areas` payload
+        immediately before calling this, never a cached value from earlier
+        in the session: an unrelated area add/edit/delete elsewhere can
+        silently reassign every index, not just ones after the change.
+        """
+        await mqtt.async_publish(self.hass, self._topic("start_area"), str(int(index)))
