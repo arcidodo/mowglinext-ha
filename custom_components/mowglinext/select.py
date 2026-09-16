@@ -1,9 +1,10 @@
-"""MowgliNext select entity — pick a recorded area to start mowing now.
+"""MowgliNext select entity — arm a recorded area to start mowing.
 
-Same "select an option, it fires immediately" pattern several vacuum
-integrations use for "clean this room now" -- there is no persistent
-"selected area" state on the mower itself, this is a momentary control
-that always resolves against the freshest <prefix>/areas list.
+Picking an option only arms it (stores the name on the shared hub); it does
+NOT publish anything by itself. Press the companion "Start selected area"
+button (button.py) to actually start it — that's the point where the name
+is resolved to an index, against the freshest <prefix>/areas payload, since
+there is no persistent "selected area" state on the mower itself.
 """
 from __future__ import annotations
 
@@ -30,24 +31,25 @@ async def async_setup_entry(
 
 
 class MowglinextAreaSelect(MowglinextEntity, SelectEntity):
-    """Publishes <prefix>/start_area for the area picked, by re-resolving
-    its index from the CURRENT <prefix>/areas payload at selection time --
-    never a value cached from when the option list was built. Recorded
-    areas have no stable id yet (mowglinext#637); an unrelated area add/
-    edit/delete elsewhere can silently reassign every index, so caching one
-    across a session risks starting the wrong area. See docs/MQTT_CONTROL.md
-    in the main repo for the full interim-contract caveat.
+    """Arms an area on the shared hub for the "Start selected area" button.
+
+    Deliberately does not resolve or publish anything itself: recorded areas
+    have no stable id yet (mowglinext#637), so an unrelated area add/edit/
+    delete between arming and pressing the button can silently reassign
+    every index. The button re-resolves by name at press time instead of
+    trusting an index cached here. See docs/MQTT_CONTROL.md in the main repo
+    for the full interim-contract caveat.
     """
 
-    _attr_name = "Start area"
+    _attr_name = "Area to start"
     _attr_icon = "mdi:map-marker-radius"
     _topic_key = "areas"
 
     def __init__(self, hub: MowglinextHub) -> None:
         super().__init__(hub)
         self._attr_unique_id = f"{hub.device_id}_start_area"
-        # Momentary control, not a persisted mower setting: this only ever
-        # reflects the last area WE asked to start, purely so the UI shows
+        # Momentary UI control, not a persisted mower setting: this only
+        # ever reflects the last area WE armed, purely so the UI shows
         # something sensible after a selection -- it is not read back from
         # the mower (there is no "currently selected area" concept there).
         self._current_option: str | None = None
@@ -64,17 +66,15 @@ class MowglinextAreaSelect(MowglinextEntity, SelectEntity):
         return None
 
     async def async_select_option(self, option: str) -> None:
-        areas = self.hub.data.get("areas") or []
-        match = next((area for area in areas if area.get("name") == option), None)
-        if match is None:
-            # The list moved between the user opening the picker and
-            # choosing an option (or it's simply gone stale) -- refuse
-            # rather than silently starting nothing or, worse, a stale
-            # index that now points at a different area.
+        if option not in self.options:
+            # Fail fast rather than silently arming a name that's already
+            # gone -- the button re-validates again at press time too,
+            # since the list can still change in the gap between arming and
+            # pressing.
             raise HomeAssistantError(
                 f"'{option}' is not in the current recorded-area list; it may have been "
                 "renamed or removed. Try again after the list refreshes."
             )
-        await self.hub.async_start_area(match["index"])
         self._current_option = option
+        self.hub.pending_area_name = option
         self.async_write_ha_state()

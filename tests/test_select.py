@@ -1,4 +1,9 @@
-"""Tests for the area-select entity (<prefix>/areas + <prefix>/start_area)."""
+"""Tests for the area-picker select entity (<prefix>/areas).
+
+Selecting only arms hub.pending_area_name -- it does not publish anything.
+See test_button.py for the companion "Start selected area" button that
+actually resolves and publishes <prefix>/start_area.
+"""
 import json
 
 import pytest
@@ -33,7 +38,7 @@ async def test_options_track_the_areas_topic(hass: HomeAssistant, mqtt_mock) -> 
     await _setup_entry(hass, mqtt_mock)
     await _make_available(hass)
 
-    state = hass.states.get("select.mowgli_start_area")
+    state = hass.states.get("select.mowgli_area_to_start")
     assert state is not None
     assert state.attributes["options"] == []
 
@@ -44,11 +49,11 @@ async def test_options_track_the_areas_topic(hass: HomeAssistant, mqtt_mock) -> 
     )
     await hass.async_block_till_done()
 
-    state = hass.states.get("select.mowgli_start_area")
+    state = hass.states.get("select.mowgli_area_to_start")
     assert state.attributes["options"] == ["Front Lawn", "Back Garden"]
 
 
-async def test_select_option_publishes_resolved_index(
+async def test_select_option_arms_hub_without_publishing(
     hass: HomeAssistant, mqtt_mock
 ) -> None:
     await _setup_entry(hass, mqtt_mock)
@@ -63,20 +68,23 @@ async def test_select_option_publishes_resolved_index(
     await hass.services.async_call(
         "select",
         "select_option",
-        {"entity_id": "select.mowgli_start_area", "option": "Back Garden"},
+        {"entity_id": "select.mowgli_area_to_start", "option": "Back Garden"},
         blocking=True,
     )
 
-    # "Back Garden" is index 2, not its position (1) in the list -- indices
-    # are not guaranteed contiguous/positional (docs/MQTT_CONTROL.md).
+    # Arming alone must not publish anything -- that's the whole point of
+    # splitting "pick" from "start" into a separate button.
     published = [
         call for call in mqtt_mock.async_publish.mock_calls if "mowgli/start_area" in call.args
     ]
-    assert published, mqtt_mock.async_publish.mock_calls
-    assert "2" in published[-1].args
+    assert not published, mqtt_mock.async_publish.mock_calls
 
-    state = hass.states.get("select.mowgli_start_area")
+    state = hass.states.get("select.mowgli_area_to_start")
     assert state.state == "Back Garden"
+
+    entry = hass.config_entries.async_entries(DOMAIN)[0]
+    hub = hass.data[DOMAIN][entry.entry_id]
+    assert hub.pending_area_name == "Back Garden"
 
 
 async def test_select_stale_option_raises(hass: HomeAssistant, mqtt_mock) -> None:
@@ -91,6 +99,6 @@ async def test_select_stale_option_raises(hass: HomeAssistant, mqtt_mock) -> Non
         await hass.services.async_call(
             "select",
             "select_option",
-            {"entity_id": "select.mowgli_start_area", "option": "Renamed Or Gone"},
+            {"entity_id": "select.mowgli_area_to_start", "option": "Renamed Or Gone"},
             blocking=True,
         )

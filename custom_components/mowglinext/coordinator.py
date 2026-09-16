@@ -76,6 +76,14 @@ class MowglinextHub:
         }
         self._listeners: dict[str, list[Callable[[], None]]] = {}
         self._unsubscribes: list[Callable[[], None]] = []
+        # UI-only "armed" area name, set by the area-picker select entity and
+        # read by the companion "Start selected area" button — never
+        # published to MQTT itself, and never persisted across a restart.
+        # Deliberately a name, not an index: the index is only ever resolved
+        # from the CURRENT <prefix>/areas payload at the moment the button
+        # is actually pressed (mowglinext#637 — indices are not stable), not
+        # cached from whenever it was picked.
+        self.pending_area_name: str | None = None
 
     @property
     def available(self) -> bool:
