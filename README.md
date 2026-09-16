@@ -49,8 +49,13 @@ mower too).
 - An `binary_sensor` for the emergency latch, and a "Reset emergency" button.
 - A `device_tracker` entity backed by `<prefix>/gps` (real lat/lon), so the mower can show up
   on a Home Assistant map — not `<prefix>/position`, which is in the mower's local odom frame.
-- Availability tracking via `<prefix>/available`, so "offline" is distinguishable from "online
-  but stuck".
+- Availability tracking via `<prefix>/available` (the broker's own Last Will and Testament) **and**
+  a freshness watchdog on `<prefix>/high_level_status`: that topic is republished at a steady ~1 Hz
+  by the mower's behavior tree, so if no update arrives for 10 seconds the integration marks itself
+  unavailable — even if the broker still thinks the connection is up (a `mqtt_bridge_node` that's
+  wedged without actually dropping its TCP connection won't trigger the LWT on its own). The goal:
+  you should never see a frozen "mowing"/"docked" state that's actually gone stale — either it's
+  correct, or the entity honestly shows unavailable.
 
 ## Limitations
 
