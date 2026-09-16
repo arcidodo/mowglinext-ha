@@ -5,9 +5,9 @@
   "config_flow": true,
   "dependencies": ["mqtt"],
   "documentation": "https://github.com/arcidodo/mowglinext-ha",
-  "issue_tracker": "https://github.com/arcidodo/mowglinext-ha/issues",
-  "iot_class": "local_push",
   "integration_type": "device",
+  "iot_class": "local_push",
+  "issue_tracker": "https://github.com/arcidodo/mowglinext-ha/issues",
   "mqtt": ["mowgli/available"],
   "requirements": [],
   "version": "0.3.0"
