@@ -64,6 +64,7 @@ class Palette:
     trail: RGB  # the thin line where the mower travelled with the blade off
     mower_fill: RGB  # used when the RTK quality is unknown
     mower_outline: RGB
+    dock: RGB
     text: RGB
     notice: RGB
 
@@ -79,6 +80,7 @@ PALETTES: dict[str, Palette] = {
         trail=(74, 163, 255),
         mower_fill=(255, 82, 82),
         mower_outline=(255, 255, 255),
+        dock=(129, 212, 250),
         text=(230, 236, 240),
         notice=(224, 160, 48),
     ),
@@ -92,6 +94,7 @@ PALETTES: dict[str, Palette] = {
         trail=(255, 235, 59),
         mower_fill=(255, 112, 67),
         mower_outline=(255, 255, 255),
+        dock=(79, 195, 247),
         text=(255, 255, 255),
         notice=(255, 213, 79),
     ),
@@ -104,6 +107,7 @@ PALETTES: dict[str, Palette] = {
         trail=(25, 118, 210),
         mower_fill=(229, 57, 53),
         mower_outline=(255, 255, 255),
+        dock=(2, 119, 189),
         text=(33, 43, 36),
         notice=(191, 96, 0),
     ),
@@ -117,6 +121,7 @@ PALETTES: dict[str, Palette] = {
         trail=(0, 229, 255),
         mower_fill=(255, 145, 0),
         mower_outline=(255, 255, 255),
+        dock=(79, 195, 247),
         text=(224, 224, 224),
         notice=(255, 171, 64),
     ),
@@ -201,6 +206,39 @@ def parse_datum(payload: Any) -> tuple[float, float] | None:
         # publishes 0/0, and projecting a real fix through it lands ~6000 km away.
         return None
     return float(lat), float(lon)
+
+
+@dataclass(frozen=True)
+class Dock:
+    """The charging dock in the map frame: metres from the datum, yaw in radians (CCW from east)."""
+
+    x: float
+    y: float
+    yaw: float
+
+
+def parse_dock(payload: Any) -> Dock | None:
+    """The optional "dock" object of a <prefix>/area_boundary payload."""
+    dock = payload.get("dock") if isinstance(payload, dict) else None
+    if not isinstance(dock, dict):
+        return None
+    values = [dock.get(k) for k in ("x", "y", "yaw")]
+    if not all(isinstance(v, (int, float)) and math.isfinite(v) for v in values):
+        return None
+    return Dock(float(values[0]), float(values[1]), float(values[2]))
+
+
+def parse_pose(payload: Any) -> tuple[Point, float] | None:
+    """((x, y), yaw) from a <prefix>/pose payload: the mower's fused pose in the map frame."""
+    if not isinstance(payload, dict):
+        return None
+    values = [payload.get(k) for k in ("x", "y", "yaw")]
+    if not all(
+        isinstance(v, (int, float)) and not isinstance(v, bool) and math.isfinite(v)
+        for v in values
+    ):
+        return None
+    return (float(values[0]), float(values[1])), float(values[2])
 
 
 # --- interpreting the other topics ------------------------------------------------------------
@@ -358,6 +396,12 @@ def _mix(a: RGB, b: RGB, amount: float) -> RGB:
     )
 
 
+def _readable_on(colour: RGB) -> RGB:
+    """Black or white, whichever reads better on `colour`."""
+    luminance = 0.299 * colour[0] + 0.587 * colour[1] + 0.114 * colour[2]
+    return (0, 0, 0) if luminance > 140 else (255, 255, 255)
+
+
 def _dimmed(colour: RGB, palette: Palette) -> RGBA:
     """`colour` as it appears in an area that is not being worked."""
     if palette.background is None:
@@ -388,6 +432,8 @@ def render_map(
     active_area: int | None = None,
     marker_colour: RGB | None = None,
     tool_width_m: float = DEFAULT_TOOL_WIDTH_M,
+    heading: float | None = None,
+    dock: Dock | None = None,
 ) -> bytes:
     """Render the lawn(s), the mower's trail and its current position as a PNG.
 
@@ -395,7 +441,8 @@ def render_map(
     mower stays visible even when it is outside the recorded boundary. `trail`
     items are (x, y) or (x, y, blade_on): stretches driven with the blade running
     are drawn as a stripe as wide as the cut, the rest as a thin line. When
-    `active_area` names one of the areas, the others are dimmed.
+    `active_area` names one of the areas, the others are dimmed. `heading` (radians,
+    CCW from east) turns the mower's dot into an arrow; `dock` adds the charger.
     """
     if not areas and position is None:
         return render_placeholder("Waiting for map data", palette=palette)
@@ -405,6 +452,8 @@ def render_map(
     every_point += [(x, y) for x, y, _ in samples]
     if position is not None:
         every_point.append(position)
+    if dock is not None:
+        every_point.append((dock.x, dock.y))
 
     xs = [p[0] for p in every_point]
     ys = [p[1] for p in every_point]
@@ -459,6 +508,9 @@ def render_map(
             )
             _draw_centered_text(draw, centre, area.name, _font(14 * ss), tone(palette.text))
 
+    if dock is not None:
+        _draw_dock(draw, px, dock, scale, ss, palette)
+
     runs = list(_runs(samples))
     stripe_px = max(3.0, tool_width_m * scale) * ss
     for blading, run in runs:
@@ -478,20 +530,81 @@ def render_map(
             )
 
     if position is not None:
-        cx, cy = px(position)
-        radius = 8 * ss
-        draw.ellipse(
-            (cx - radius, cy - radius, cx + radius, cy + radius),
-            fill=_opaque(marker_colour or palette.mower_fill),
-            outline=_opaque(palette.mower_outline),
-            width=2 * ss,
-        )
+        _draw_mower(draw, px(position), heading, ss, marker_colour or palette.mower_fill, palette)
 
     _draw_scale_bar(draw, scale, height, ss, palette)
     if notice:
         _draw_notice(draw, notice, ss, palette)
 
     return _finish(image.resize((width, height), Image.LANCZOS), palette)
+
+
+def _draw_mower(
+    draw: ImageDraw.ImageDraw,
+    centre: Point,
+    heading: float | None,
+    ss: int,
+    fill: RGB,
+    palette: Palette,
+) -> None:
+    """The mower: an arrow pointing where it faces, or a dot when the heading is unknown."""
+    cx, cy = centre
+    if heading is None:
+        radius = 8 * ss
+        draw.ellipse(
+            (cx - radius, cy - radius, cx + radius, cy + radius),
+            fill=_opaque(fill),
+            outline=_opaque(palette.mower_outline),
+            width=2 * ss,
+        )
+        return
+    # Screen y grows downwards, the map's north upwards.
+    dx, dy = math.cos(heading), -math.sin(heading)
+    nx, ny = -dy, dx  # to the mower's left on screen
+    tip = 13 * ss
+    back = 8 * ss
+    half_width = 9 * ss
+    outline = [
+        (cx + dx * tip, cy + dy * tip),
+        (cx - dx * back + nx * half_width, cy - dy * back + ny * half_width),
+        (cx - dx * back * 0.35, cy - dy * back * 0.35),
+        (cx - dx * back - nx * half_width, cy - dy * back - ny * half_width),
+    ]
+    draw.polygon(outline, fill=_opaque(fill))
+    draw.line(
+        [*outline, outline[0]], fill=_opaque(palette.mower_outline), width=2 * ss, joint="curve"
+    )
+
+
+def _draw_dock(
+    draw: ImageDraw.ImageDraw, px: Any, dock: Dock, scale: float, ss: int, palette: Palette
+) -> None:
+    """The charging dock: a rounded plate with a tick on the side the mower drives in from.
+
+    The dock pose's yaw is the heading the mower has when docked, so the plate
+    extends ahead of that point.
+    """
+    dx, dy = math.cos(dock.yaw), -math.sin(dock.yaw)
+    nx, ny = -dy, dx
+    length = max(0.55 * scale, 22) * ss
+    width = max(0.4 * scale, 16) * ss
+    cx, cy = px((dock.x, dock.y))
+    # Plate centred 40 % of its length ahead of the docked position.
+    ox, oy = cx + dx * length * 0.4, cy + dy * length * 0.4
+    corners = [
+        (ox + dx * length / 2 + nx * width / 2, oy + dy * length / 2 + ny * width / 2),
+        (ox + dx * length / 2 - nx * width / 2, oy + dy * length / 2 - ny * width / 2),
+        (ox - dx * length / 2 - nx * width / 2, oy - dy * length / 2 - ny * width / 2),
+        (ox - dx * length / 2 + nx * width / 2, oy - dy * length / 2 + ny * width / 2),
+    ]
+    draw.polygon(corners, fill=_opaque(palette.dock))
+    draw.line(
+        [*corners, corners[0]], fill=_opaque(palette.mower_outline), width=2 * ss, joint="curve"
+    )
+    if length / ss >= 44:  # only when the plate is big enough to carry the word
+        _draw_centered_text(
+            draw, (ox, oy), "DOCK", _font(10 * ss), _opaque(_readable_on(palette.dock))
+        )
 
 
 def _draw_notice(draw: ImageDraw.ImageDraw, text: str, ss: int, palette: Palette) -> None:

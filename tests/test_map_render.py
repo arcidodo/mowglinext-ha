@@ -15,6 +15,7 @@ from custom_components.mowglinext.map_render import (
     RTK_FLOAT_COLOUR,
     RTK_NONE_COLOUR,
     Area,
+    Dock,
     TrailBuffer,
     active_area_index,
     is_blade_on,
@@ -22,6 +23,8 @@ from custom_components.mowglinext.map_render import (
     is_session_start,
     parse_areas,
     parse_datum,
+    parse_dock,
+    parse_pose,
     render_map,
     render_placeholder,
     rtk_marker_colour,
@@ -320,3 +323,70 @@ def test_the_transparent_palette_has_alpha_and_cut_out_obstacles() -> None:
     assert image.getpixel((3, 3))[3] == 0  # background outside the lawn
     assert image.getpixel((400, 400))[3] == 0  # the obstacle is a hole
     assert image.getpixel((400, 523))[3] == 255  # lawn
+
+
+# --- dock, pose, heading ---------------------------------------------------------------------
+
+
+def test_parse_dock() -> None:
+    assert parse_dock({"dock": {"x": 1.5, "y": -2.0, "yaw": 0.5}}) == Dock(1.5, -2.0, 0.5)
+    assert parse_dock({"areas": []}) is None  # no dock calibrated: the key is omitted
+    assert parse_dock({"dock": {"x": 1.5, "y": "?", "yaw": 0.5}}) is None
+    assert parse_dock({"dock": {"x": math.nan, "y": 0, "yaw": 0}}) is None
+    assert parse_dock(None) is None
+
+
+def test_parse_pose() -> None:
+    assert parse_pose({"x": 1.0, "y": 2.0, "yaw": 0.5}) == ((1.0, 2.0), 0.5)
+    assert parse_pose({"x": 1.0, "y": 2.0}) is None
+    assert parse_pose({"x": True, "y": 2.0, "yaw": 0.5}) is None
+    assert parse_pose({"x": math.inf, "y": 2.0, "yaw": 0.5}) is None
+    assert parse_pose(None) is None
+
+
+def test_the_dock_is_drawn() -> None:
+    palette = PALETTES["classic"]
+    plain = _open(render_map([Area(name="", boundary=SQUARE)], None))
+    with_dock = _open(
+        render_map([Area(name="", boundary=SQUARE)], None, dock=Dock(9.0, 5.0, math.pi))
+    )
+    assert not _has_colour(plain, palette.dock)
+    assert _has_colour(with_dock, palette.dock)
+
+
+def test_the_view_grows_to_include_a_dock_outside_the_lawn() -> None:
+    palette = PALETTES["classic"]
+    image = _open(
+        render_map([Area(name="", boundary=SQUARE)], None, dock=Dock(30.0, 5.0, math.pi))
+    )
+    assert _has_colour(image, palette.dock)
+    assert _has_colour(image, palette.lawn_fill)
+
+
+def test_the_arrow_points_where_the_mower_faces() -> None:
+    # 10 m lawn + 1.5 m margin: 61.5 px/m, the lawn centre (5, 5) is at (400, 400).
+    def marker_pixel(yaw: float, dx: int, dy: int) -> tuple[int, int, int]:
+        image = _open(
+            render_map(
+                [Area(name="", boundary=SQUARE)], (5.0, 5.0), heading=yaw, marker_colour=(0, 200, 83)
+            )
+        )
+        return image.getpixel((400 + dx, 400 + dy))
+
+    green = (0, 200, 83)
+    # 5 px ahead of the centre is inside the arrow; 12 px behind it is outside.
+    for yaw, ahead, behind in (
+        (math.pi / 2, (0, -5), (0, 12)),  # facing north
+        (0.0, (5, 0), (-12, 0)),  # facing east
+        (math.pi, (-5, 0), (12, 0)),  # facing west
+        (-math.pi / 2, (0, 5), (0, -12)),  # facing south
+    ):
+        assert _close(marker_pixel(yaw, *ahead), green), yaw
+        assert not _close(marker_pixel(yaw, *behind), green), yaw
+
+
+def test_without_a_heading_the_marker_is_a_dot() -> None:
+    image = _open(render_map([Area(name="", boundary=SQUARE)], (5.0, 5.0), marker_colour=(0, 200, 83)))
+    green = (0, 200, 83)
+    for dx, dy in ((0, -4), (0, 4), (-4, 0), (4, 0)):
+        assert _close(image.getpixel((400 + dx, 400 + dy)), green)

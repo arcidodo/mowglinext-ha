@@ -1,5 +1,6 @@
 """Tests for the map camera entity (<prefix>/area_boundary + <prefix>/gps)."""
 import json
+import math
 from io import BytesIO
 
 import pytest
@@ -317,3 +318,73 @@ async def test_coming_back_online_is_shown_even_inside_the_write_throttle(
 
     await _make_available(hass)
     assert hass.states.get(CAMERA).state != "unavailable"
+
+
+def _pose(x: float, y: float, yaw: float = 0.0) -> dict:
+    return {"x": x, "y": y, "yaw": yaw}
+
+
+async def test_the_fused_pose_is_preferred_over_gps(hass: HomeAssistant, mqtt_mock) -> None:
+    await _setup_entry(hass, mqtt_mock)
+    await _make_available(hass)
+    await _fire(hass, "area_boundary", AREA_BOUNDARY)
+    await _fire(hass, "pose", _pose(2.0, 3.0, math.pi / 2))
+
+    attrs = hass.states.get(CAMERA).attributes
+    assert attrs["position_x"] == pytest.approx(2.0)
+    assert attrs["position_y"] == pytest.approx(3.0)
+    assert attrs["heading_deg"] == pytest.approx(90.0)
+    assert attrs["position_source"] == "pose"
+
+    await _fix(hass, 8.0, 8.0)  # a jittery GPS fix elsewhere must not move the marker
+    assert hass.states.get(CAMERA).attributes["position_x"] == pytest.approx(2.0)
+
+
+async def test_the_pose_needs_no_datum(hass: HomeAssistant, mqtt_mock) -> None:
+    await _setup_entry(hass, mqtt_mock)
+    await _make_available(hass)
+    await _fire(hass, "area_boundary", {**AREA_BOUNDARY, "datum_lat": 0.0, "datum_lon": 0.0})
+    await _fire(hass, "pose", _pose(4.0, 6.0))
+
+    assert hass.states.get(CAMERA).attributes["position_x"] == pytest.approx(4.0)
+    image = await async_get_image(hass, CAMERA)
+    assert _png(image.content).size == (800, 800)
+
+
+async def test_a_stale_pose_falls_back_to_gps(
+    hass: HomeAssistant, mqtt_mock, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(camera_module, "POSE_MAX_AGE_S", 0.0)  # every pose is already stale
+    await _setup_entry(hass, mqtt_mock)
+    await _make_available(hass)
+    await _fire(hass, "area_boundary", AREA_BOUNDARY)
+    await _fire(hass, "pose", _pose(2.0, 3.0))
+    await _fix(hass, 7.0, 7.0)
+
+    attrs = hass.states.get(CAMERA).attributes
+    assert attrs["position_source"] == "gps"
+    assert attrs["position_y"] == pytest.approx(7.0, abs=0.01)
+    assert "heading_deg" not in attrs
+
+
+async def test_an_unusable_pose_is_ignored(hass: HomeAssistant, mqtt_mock) -> None:
+    await _setup_entry(hass, mqtt_mock)
+    await _make_available(hass)
+    await _fire(hass, "area_boundary", AREA_BOUNDARY)
+    await _fire(hass, "pose", {"x": 1.0, "y": 2.0})  # no yaw
+    assert "position_x" not in hass.states.get(CAMERA).attributes
+
+    await _fire(hass, "pose", _pose(9000.0, 0.0))  # implausibly far
+    assert "position_x" not in hass.states.get(CAMERA).attributes
+
+
+async def test_the_dock_appears_when_the_mower_publishes_one(
+    hass: HomeAssistant, mqtt_mock
+) -> None:
+    await _setup_entry(hass, mqtt_mock)
+    await _make_available(hass)
+    await _fire(hass, "area_boundary", AREA_BOUNDARY)
+    without_dock = await _image(hass)
+
+    await _fire(hass, "area_boundary", {**AREA_BOUNDARY, "dock": {"x": 9.0, "y": 5.0, "yaw": 3.14}})
+    assert await _image(hass) != without_dock

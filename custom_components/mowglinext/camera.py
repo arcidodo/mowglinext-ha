@@ -6,6 +6,10 @@ uses) and its trail since the current mow session started, as a PNG. Built as
 a camera entity because cards such as custom:lawn-mower-card take a camera for
 their map preview.
 
+The mower's position comes from <prefix>/pose (the localizer's fused pose in
+the map frame: smooth, with a heading, and no datum needed) while it is being
+published, and falls back to <prefix>/gps projected through the datum.
+
 Also drawn: the area being worked is highlighted and the others dimmed
 (<prefix>/high_level_status), the stretches driven with the blade running are
 drawn as a stripe as wide as the cut (<prefix>/status), and the mower's marker
@@ -13,6 +17,7 @@ is coloured by its RTK quality (<prefix>/rtk_status).
 """
 from __future__ import annotations
 
+import math
 import time
 from collections.abc import Callable
 from datetime import UTC, datetime
@@ -40,6 +45,8 @@ from .map_render import (
     is_session_start,
     parse_areas,
     parse_datum,
+    parse_dock,
+    parse_pose,
     render_map,
     rtk_marker_colour,
     to_enu,
@@ -49,6 +56,10 @@ from .map_render import (
 # does not turn into 1 Hz recorder churn. The image itself is rendered on
 # request from the latest data.
 STATE_WRITE_MIN_INTERVAL_S = 5.0
+
+# A <prefix>/pose older than this is not trusted any more (the localizer stopped
+# publishing, e.g. it lost its fix) and the position falls back to the raw GPS fix.
+POSE_MAX_AGE_S = 10.0
 
 
 async def async_setup_entry(
@@ -74,6 +85,7 @@ def _render(
     style: str,
     active_area: int | None,
     marker_colour: RGB | None,
+    heading: float | None,
 ) -> bytes:
     return render_map(
         parse_areas(payload),
@@ -83,6 +95,8 @@ def _render(
         palette=PALETTES[style],
         active_area=active_area,
         marker_colour=marker_colour,
+        heading=heading,
+        dock=parse_dock(payload),
     )
 
 
@@ -94,7 +108,7 @@ class MowglinextMapCamera(MowglinextEntity, Camera):
     # (via _handle_hub_update); the other topics are added in async_added_to_hass.
     _topic_key = "high_level_status"
     _unrecorded_attributes = frozenset(
-        {"map_updated", "trail_points", "position_x", "position_y", "blade_on"}
+        {"map_updated", "trail_points", "position_x", "position_y", "heading_deg", "blade_on"}
     )
 
     def __init__(self, hub: MowglinextHub) -> None:
@@ -104,6 +118,8 @@ class MowglinextMapCamera(MowglinextEntity, Camera):
         self._attr_unique_id = f"{hub.device_id}_map"
         self._trail = TrailBuffer()
         self._position: Point | None = None
+        self._heading: float | None = None
+        self._last_pose_time: float | None = None
         self._previous_state_name: str | None = None
         self._active_area: int | None = None
         self._charging = False
@@ -121,6 +137,7 @@ class MowglinextMapCamera(MowglinextEntity, Camera):
         await super().async_added_to_hass()
         self._extra_unsubs = [
             self.hub.async_add_listener("gps", self._handle_gps),
+            self.hub.async_add_listener("pose", self._handle_pose),
             self.hub.async_add_listener("area_boundary", self._handle_area_boundary),
             self.hub.async_add_listener("status", self._handle_status),
             self.hub.async_add_listener("rtk_status", self._handle_rtk_status),
@@ -128,7 +145,7 @@ class MowglinextMapCamera(MowglinextEntity, Camera):
         ]
         # The broker replays retained data on subscribe, so some may already be here.
         self._read_context()
-        self._ingest_gps()
+        self._ingest_position()
         self._render_version += 1
 
     async def async_will_remove_from_hass(self) -> None:
@@ -185,18 +202,33 @@ class MowglinextMapCamera(MowglinextEntity, Camera):
     @callback
     def _handle_area_boundary(self) -> None:
         # The datum may have just become known, so the last fix can now be placed.
-        self._ingest_gps()
+        self._ingest_position()
         self._render_version += 1
         self._write_state_if_due()
 
     @callback
     def _handle_gps(self) -> None:
-        if self._ingest_gps():
+        if self._ingest_position():
             self._render_version += 1
         self._write_state_if_due()
 
-    def _ingest_gps(self) -> bool:
-        """Project the latest fix through the datum; True if the position changed."""
+    @callback
+    def _handle_pose(self) -> None:
+        self._last_pose_time = time.monotonic()
+        if self._ingest_position():
+            self._render_version += 1
+        self._write_state_if_due()
+
+    def _pose_is_fresh(self) -> bool:
+        return (
+            self._last_pose_time is not None
+            and time.monotonic() - self._last_pose_time <= POSE_MAX_AGE_S
+        )
+
+    def _current_position(self) -> tuple[Point, float | None] | None:
+        """The mower's position (and heading, if known): the fused pose, else the GPS fix."""
+        if self._pose_is_fresh() and (pose := parse_pose(self.hub.data.get("pose"))) is not None:
+            return pose
         gps = self.hub.data.get("gps") or {}
         datum = parse_datum(self.hub.data.get("area_boundary"))
         lat, lon = gps.get("latitude"), gps.get("longitude")
@@ -207,12 +239,23 @@ class MowglinextMapCamera(MowglinextEntity, Camera):
             or not isinstance(lon, (int, float))
             or (isinstance(status, (int, float)) and status < 0)
         ):
+            return None
+        return to_enu(lat, lon, datum[0], datum[1]), None
+
+    def _ingest_position(self) -> bool:
+        """Take the latest position; True if it (or the heading) changed."""
+        current = self._current_position()
+        if current is None:
             return False
-        position = to_enu(lat, lon, datum[0], datum[1])
-        if position == self._position or max(map(abs, position)) > PLAUSIBLE_RADIUS_M:
+        position, heading = current
+        if max(map(abs, position)) > PLAUSIBLE_RADIUS_M:
             return False
+        if position == self._position and heading == self._heading:
+            return False
+        moved = position != self._position
         self._position = position
-        if not self._charging:
+        self._heading = heading
+        if moved and not self._charging:
             self._trail.add(position, self._blading)
         return True
 
@@ -243,6 +286,7 @@ class MowglinextMapCamera(MowglinextEntity, Camera):
                     self.hub.map_style,
                     self._active_area,
                     self._marker_colour,
+                    self._heading,
                 )
             )
             self._rendered_version = version
@@ -259,4 +303,7 @@ class MowglinextMapCamera(MowglinextEntity, Camera):
         if self._position is not None:
             attrs["position_x"] = round(self._position[0], 2)
             attrs["position_y"] = round(self._position[1], 2)
+        if self._heading is not None:
+            attrs["heading_deg"] = round(math.degrees(self._heading) % 360, 1)
+        attrs["position_source"] = "pose" if self._pose_is_fresh() else "gps"
         return attrs

@@ -63,6 +63,12 @@ mower too).
     above 300) as a stripe as wide as the cut (18 cm), so you see what has really been mowed; the
     rest as a thin line. No trail is recorded while the mower is on the charger, so GPS jitter at
     the dock does not scribble over the map;
+  - the charging dock, when the mower publishes one (`dock` in `<prefix>/area_boundary`);
+  - the mower as an arrow pointing where it faces, when the mower publishes its fused pose
+    (`<prefix>/pose`, map frame). That pose is also used for the position and the trail, because it
+    is smoother than the raw GPS fix and needs no datum; without a fresh pose (older mower
+    software, or the localizer not publishing for 10 s) the raw GPS fix is used and the marker is a
+    dot;
   - the mower's marker coloured by RTK quality (`<prefix>/rtk_status`): fixed green, float
     orange, anything else red.
 - A `select` entity ("Map style", configuration category) with the map's colour style: `natural`
@@ -96,8 +102,7 @@ mower too).
   datum to `mqtt_bridge_node`) still shows the lawn, with a note that the position is unavailable,
   instead of plotting the mower thousands of kilometres away. Fixes further than 5 km from the
   datum are ignored the same way.
-- The map camera is schematic: no satellite background, no dock marker (the dock pose is not on
-  the MQTT contract yet), no heading arrow, and no mowed-versus-remaining coverage (only where the
+- The map camera is schematic: no satellite background and no mowed-versus-remaining coverage (only where the
   blade has actually been, since this integration started). The trail is kept in memory only, so it starts empty
   after a Home Assistant restart until the mower moves again.
 - Commands are fire-and-forget over MQTT — there is no acknowledgement. The `lawn_mower` entity
