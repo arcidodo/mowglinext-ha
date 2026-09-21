@@ -5,6 +5,11 @@ current position (<prefix>/gps, projected through the same datum the mower
 uses) and its trail since the current mow session started, as a PNG. Built as
 a camera entity because cards such as custom:lawn-mower-card take a camera for
 their map preview.
+
+Also drawn: the area being worked is highlighted and the others dimmed
+(<prefix>/high_level_status), the stretches driven with the blade running are
+drawn as a stripe as wide as the cut (<prefix>/status), and the mower's marker
+is coloured by its RTK quality (<prefix>/rtk_status).
 """
 from __future__ import annotations
 
@@ -23,13 +28,20 @@ from .const import DOMAIN
 from .coordinator import MowglinextHub
 from .entity import MowglinextEntity
 from .map_render import (
+    PALETTES,
+    PLAUSIBLE_RADIUS_M,
+    RGB,
     Point,
     TrailBuffer,
+    TrailSample,
+    active_area_index,
+    is_blade_on,
+    is_charging,
     is_session_start,
-    PLAUSIBLE_RADIUS_M,
     parse_areas,
     parse_datum,
     render_map,
+    rtk_marker_colour,
     to_enu,
 )
 
@@ -55,18 +67,35 @@ def _notice(payload: Any, position: Point | None) -> str | None:
     return "Waiting for a GPS fix"
 
 
-def _render(payload: Any, position: Point | None, trail: list[Point]) -> bytes:
-    return render_map(parse_areas(payload), position, trail, notice=_notice(payload, position))
+def _render(
+    payload: Any,
+    position: Point | None,
+    trail: list[TrailSample],
+    style: str,
+    active_area: int | None,
+    marker_colour: RGB | None,
+) -> bytes:
+    return render_map(
+        parse_areas(payload),
+        position,
+        trail,
+        notice=_notice(payload, position),
+        palette=PALETTES[style],
+        active_area=active_area,
+        marker_colour=marker_colour,
+    )
 
 
 class MowglinextMapCamera(MowglinextEntity, Camera):
     """Map preview: lawn polygons, trail and current mower position."""
 
     _attr_name = "Map"
-    # high_level_status drives session-start detection (via _handle_hub_update);
-    # gps and area_boundary are added in async_added_to_hass.
+    # high_level_status drives session-start detection and the highlighted area
+    # (via _handle_hub_update); the other topics are added in async_added_to_hass.
     _topic_key = "high_level_status"
-    _unrecorded_attributes = frozenset({"map_updated", "trail_points", "position_x", "position_y"})
+    _unrecorded_attributes = frozenset(
+        {"map_updated", "trail_points", "position_x", "position_y", "blade_on"}
+    )
 
     def __init__(self, hub: MowglinextHub) -> None:
         Camera.__init__(self)
@@ -76,10 +105,15 @@ class MowglinextMapCamera(MowglinextEntity, Camera):
         self._trail = TrailBuffer()
         self._position: Point | None = None
         self._previous_state_name: str | None = None
+        self._active_area: int | None = None
+        self._charging = False
+        self._blading = False
+        self._marker_colour: RGB | None = None
         self._render_version = 0
         self._rendered_version = -1
         self._written_version = -1
         self._last_write = 0.0
+        self._written_available: bool | None = None
         self._png: bytes | None = None
         self._extra_unsubs: list[Callable[[], None]] = []
 
@@ -88,8 +122,12 @@ class MowglinextMapCamera(MowglinextEntity, Camera):
         self._extra_unsubs = [
             self.hub.async_add_listener("gps", self._handle_gps),
             self.hub.async_add_listener("area_boundary", self._handle_area_boundary),
+            self.hub.async_add_listener("status", self._handle_status),
+            self.hub.async_add_listener("rtk_status", self._handle_rtk_status),
+            self.hub.async_add_listener("map_style", self._handle_map_style),
         ]
-        # The broker replays retained data on subscribe, so it may already be here.
+        # The broker replays retained data on subscribe, so some may already be here.
+        self._read_context()
         self._ingest_gps()
         self._render_version += 1
 
@@ -99,15 +137,50 @@ class MowglinextMapCamera(MowglinextEntity, Camera):
         self._extra_unsubs = []
         await super().async_will_remove_from_hass()
 
+    def _read_context(self) -> None:
+        """Pick up whatever the hub already holds for the non-position inputs."""
+        hls = self.hub.data.get("high_level_status")
+        self._active_area = active_area_index(hls)
+        self._charging = is_charging(hls)
+        self._blading = is_blade_on(self.hub.data.get("status"))
+        self._marker_colour = rtk_marker_colour(self.hub.data.get("rtk_status"))
+
     @callback
     def _handle_hub_update(self) -> None:
-        """high_level_status: a new mow session starts a fresh trail."""
-        name = (self.hub.data.get("high_level_status") or {}).get("state_name")
-        if is_session_start(self._previous_state_name, name):
+        """high_level_status: session starts, the active area, and being on the dock."""
+        hls = self.hub.data.get("high_level_status") or {}
+        changed = False
+        if is_session_start(self._previous_state_name, hls.get("state_name")):
             self._trail.clear()
+            changed = True
+        self._previous_state_name = hls.get("state_name")
+        active = active_area_index(hls)
+        if active != self._active_area:
+            self._active_area = active
+            changed = True
+        # GPS jitter while docked would scribble over the map; keep the trail still.
+        self._charging = is_charging(hls)
+        if changed:
             self._render_version += 1
-        self._previous_state_name = name
         self._write_state_if_due()
+
+    @callback
+    def _handle_status(self) -> None:
+        # Only affects the trail points added from now on, so no re-render.
+        self._blading = is_blade_on(self.hub.data.get("status"))
+
+    @callback
+    def _handle_rtk_status(self) -> None:
+        colour = rtk_marker_colour(self.hub.data.get("rtk_status"))
+        if colour != self._marker_colour:
+            self._marker_colour = colour
+            self._render_version += 1
+            self._write_state_if_due()
+
+    @callback
+    def _handle_map_style(self) -> None:
+        self._render_version += 1
+        self._write_state_if_due(force=True)
 
     @callback
     def _handle_area_boundary(self) -> None:
@@ -139,17 +212,21 @@ class MowglinextMapCamera(MowglinextEntity, Camera):
         if position == self._position or max(map(abs, position)) > PLAUSIBLE_RADIUS_M:
             return False
         self._position = position
-        self._trail.add(position)
+        if not self._charging:
+            self._trail.add(position, self._blading)
         return True
 
-    def _write_state_if_due(self) -> None:
-        if self._written_version == self._render_version:
+    def _write_state_if_due(self, force: bool = False) -> None:
+        # The mower going offline/online must show at once, throttle or not.
+        force = force or self.available != self._written_available
+        if not force and self._written_version == self._render_version:
             return
         now = time.monotonic()
-        if now - self._last_write < STATE_WRITE_MIN_INTERVAL_S:
+        if not force and now - self._last_write < STATE_WRITE_MIN_INTERVAL_S:
             return
         self._last_write = now
         self._written_version = self._render_version
+        self._written_available = self.available
         self.async_write_ha_state()
 
     async def async_camera_image(
@@ -162,7 +239,10 @@ class MowglinextMapCamera(MowglinextEntity, Camera):
                     _render,
                     self.hub.data.get("area_boundary"),
                     self._position,
-                    self._trail.points(),
+                    self._trail.samples(),
+                    self.hub.map_style,
+                    self._active_area,
+                    self._marker_colour,
                 )
             )
             self._rendered_version = version
@@ -172,6 +252,8 @@ class MowglinextMapCamera(MowglinextEntity, Camera):
     def extra_state_attributes(self) -> dict[str, Any]:
         attrs: dict[str, Any] = {
             "trail_points": len(self._trail),
+            "blade_on": self._blading,
+            "map_style": self.hub.map_style,
             "map_updated": datetime.now(UTC).isoformat(timespec="seconds"),
         }
         if self._position is not None:

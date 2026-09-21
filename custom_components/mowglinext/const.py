@@ -12,6 +12,9 @@ DOMAIN = "mowglinext"
 CONF_TOPIC_PREFIX = "topic_prefix"
 DEFAULT_TOPIC_PREFIX = "mowgli"
 
+# Colour style of the map camera (see map_render.PALETTES for the choices).
+DEFAULT_MAP_STYLE = "natural"
+
 # HighLevelControl.srv command codes. Payloads on "<prefix>/command" are the
 # ASCII decimal string of these values (e.g. "1"), NOT a raw byte.
 COMMAND_START = 1

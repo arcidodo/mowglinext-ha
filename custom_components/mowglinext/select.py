@@ -12,13 +12,16 @@ import logging
 
 from homeassistant.components.select import SelectEntity
 from homeassistant.config_entries import ConfigEntry
+from homeassistant.const import EntityCategory
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.restore_state import RestoreEntity
 
 from .const import DOMAIN
 from .coordinator import MowglinextHub
 from .entity import MowglinextEntity
+from .map_render import PALETTES
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -27,7 +30,7 @@ async def async_setup_entry(
     hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback
 ) -> None:
     hub: MowglinextHub = hass.data[DOMAIN][entry.entry_id]
-    async_add_entities([MowglinextAreaSelect(hub)])
+    async_add_entities([MowglinextAreaSelect(hub), MowglinextMapStyleSelect(hub)])
 
 
 class MowglinextAreaSelect(MowglinextEntity, SelectEntity):
@@ -78,3 +81,36 @@ class MowglinextAreaSelect(MowglinextEntity, SelectEntity):
         self._current_option = option
         self.hub.pending_area_name = option
         self.async_write_ha_state()
+
+
+class MowglinextMapStyleSelect(MowglinextEntity, SelectEntity, RestoreEntity):
+    """Colour style of the map camera (a dashboard preference, not a mower setting)."""
+
+    _attr_name = "Map style"
+    _attr_icon = "mdi:palette"
+    _attr_entity_category = EntityCategory.CONFIG
+    _attr_options = list(PALETTES)
+    _topic_key = "map_style"
+
+    def __init__(self, hub: MowglinextHub) -> None:
+        super().__init__(hub)
+        self._attr_unique_id = f"{hub.device_id}_map_style"
+
+    @property
+    def available(self) -> bool:
+        # A display preference: usable whether or not the mower is currently online.
+        return True
+
+    @property
+    def current_option(self) -> str:
+        return self.hub.map_style
+
+    async def async_added_to_hass(self) -> None:
+        await super().async_added_to_hass()
+        if (last := await self.async_get_last_state()) is not None:
+            self.hub.async_set_map_style(last.state)
+
+    async def async_select_option(self, option: str) -> None:
+        if option not in PALETTES:
+            raise HomeAssistantError(f"Unknown map style: {option}")
+        self.hub.async_set_map_style(option)

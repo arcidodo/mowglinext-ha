@@ -4,17 +4,27 @@ from io import BytesIO
 
 from PIL import Image
 
+import pytest
+
 from custom_components.mowglinext.map_render import (
     BACKGROUND,
     LAWN_FILL,
     MOWER_FILL,
+    PALETTES,
+    RTK_FIXED_COLOUR,
+    RTK_FLOAT_COLOUR,
+    RTK_NONE_COLOUR,
     Area,
     TrailBuffer,
+    active_area_index,
+    is_blade_on,
+    is_charging,
     is_session_start,
     parse_areas,
     parse_datum,
     render_map,
     render_placeholder,
+    rtk_marker_colour,
     to_enu,
 )
 
@@ -173,3 +183,140 @@ def test_notice_is_drawn_on_the_image() -> None:
     with_notice = render_map([area], None, notice="Waiting for a GPS fix")
     assert plain != with_notice
     assert _open(with_notice).size == _open(plain).size
+
+
+# --- reading the other topics --------------------------------------------------------------
+
+
+def test_blade_is_on_only_above_cutting_speed() -> None:
+    assert is_blade_on({"mower_motor_rpm": 3200.0})
+    assert not is_blade_on({"mower_motor_rpm": 0.0})
+    assert not is_blade_on({"mower_motor_rpm": 120.0})  # spinning up / coasting down
+    assert not is_blade_on({"mower_motor_rpm": None})
+    assert not is_blade_on({"mower_motor_rpm": True})
+    assert not is_blade_on({})
+    assert not is_blade_on(None)
+
+
+def test_marker_colour_follows_rtk_quality() -> None:
+    assert rtk_marker_colour({"fix_type": 3, "rtk_mode": 3, "fix_valid": True}) == RTK_FIXED_COLOUR
+    assert rtk_marker_colour({"fix_type": 2, "rtk_mode": 2, "fix_valid": True}) == RTK_FLOAT_COLOUR
+    assert rtk_marker_colour({"fix_type": 1, "rtk_mode": 1, "fix_valid": True}) == RTK_NONE_COLOUR
+    assert rtk_marker_colour({"fix_type": 0, "rtk_mode": 1, "fix_valid": False}) == RTK_NONE_COLOUR
+
+
+def test_invalid_fix_overrides_a_stale_fixed_type() -> None:
+    assert rtk_marker_colour({"fix_type": 3, "rtk_mode": 3, "fix_valid": False}) == RTK_NONE_COLOUR
+
+
+def test_marker_colour_is_none_without_rtk_data() -> None:
+    assert rtk_marker_colour({}) is None
+    assert rtk_marker_colour(None) is None
+    assert rtk_marker_colour({"quality_percent": 100}) is None
+
+
+def test_active_area_only_while_working_an_area() -> None:
+    assert active_area_index({"state_name": "MOWING", "current_area": 2}) == 2
+    assert active_area_index({"state_name": "TRANSIT", "current_area": 0}) == 0
+    assert active_area_index({"state_name": "IDLE", "current_area": 2}) is None
+    assert active_area_index({"state_name": "MOWING", "current_area": -1}) is None
+    assert active_area_index({"state_name": "MOWING"}) is None
+    assert active_area_index(None) is None
+
+
+def test_is_charging() -> None:
+    assert is_charging({"is_charging": True})
+    assert not is_charging({"is_charging": False})
+    assert not is_charging({})
+    assert not is_charging(None)
+
+
+def test_parse_areas_keeps_the_index() -> None:
+    areas = parse_areas(
+        {"areas": [{"index": 3, "name": "Back", "boundary": [[0, 0], [1, 0], [1, 1]]}]}
+    )
+    assert areas[0].index == 3
+    no_index = parse_areas({"areas": [{"name": "X", "boundary": [[0, 0], [1, 0], [1, 1]]}]})
+    assert no_index[0].index is None
+
+
+# --- trail with the blade state ------------------------------------------------------------
+
+
+def test_trail_remembers_the_blade_state_per_point() -> None:
+    trail = TrailBuffer(min_step_m=0.5)
+    trail.add((0.0, 0.0), blading=False)
+    trail.add((1.0, 0.0), blading=True)
+    trail.add((2.0, 0.0), blading=True)
+    assert trail.samples() == [(0.0, 0.0, False), (1.0, 0.0, True), (2.0, 0.0, True)]
+    assert trail.points() == [(0.0, 0.0), (1.0, 0.0), (2.0, 0.0)]
+
+
+# --- what gets drawn -----------------------------------------------------------------------
+
+BLADE_TRAIL = [(1.0, 5.0, False), (2.0, 5.0, False), (5.0, 5.0, True), (8.0, 5.0, True)]
+
+
+def test_blade_on_stretches_are_a_stripe_and_the_rest_a_thin_line() -> None:
+    palette = PALETTES["classic"]
+    image = _open(render_map([Area(name="", boundary=SQUARE)], None, BLADE_TRAIL))
+    assert _has_colour(image, palette.mowed)
+    assert _has_colour(image, palette.trail)
+
+
+def test_a_trail_without_blade_flags_has_no_stripe() -> None:
+    palette = PALETTES["classic"]
+    image = _open(render_map([Area(name="", boundary=SQUARE)], None, [(1.0, 5.0), (8.0, 5.0)]))
+    assert _has_colour(image, palette.trail)
+    assert not _has_colour(image, palette.mowed)
+
+
+def test_inactive_areas_are_dimmed() -> None:
+    a = Area(name="", boundary=[(0.0, 0.0), (10.0, 0.0), (10.0, 10.0), (0.0, 10.0)], index=0)
+    b = Area(name="", boundary=[(14.0, 0.0), (24.0, 0.0), (24.0, 10.0), (14.0, 10.0)], index=1)
+    # 24 m wide + margins: 800 px / (24 + 2*1.92) ~ 28.7 px/m; centres at x ~ 5 and 19 m.
+    plain = _open(render_map([a, b], None))
+    focused = _open(render_map([a, b], None, active_area=0))
+    y = plain.size[1] // 2
+    left = (int((5 + 1.92) * 28.7), y)
+    right = (int((19 + 1.92) * 28.7), y)
+    assert _close(plain.getpixel(left), LAWN_FILL) and _close(plain.getpixel(right), LAWN_FILL)
+    assert _close(focused.getpixel(left), LAWN_FILL)
+    assert not _close(focused.getpixel(right), LAWN_FILL, tol=8)
+
+
+def test_an_active_area_that_is_not_on_the_map_dims_nothing() -> None:
+    a = Area(name="", boundary=SQUARE, index=0)
+    assert render_map([a], None, active_area=7) == render_map([a], None)
+
+
+def test_marker_colour_override_replaces_the_palette_colour() -> None:
+    image = _open(render_map([Area(name="", boundary=SQUARE)], (5.0, 8.0), marker_colour=RTK_FIXED_COLOUR))
+    assert _has_colour(image, RTK_FIXED_COLOUR)
+    assert not _has_colour(image, MOWER_FILL)
+
+
+@pytest.mark.parametrize("name", list(PALETTES))
+def test_every_palette_renders(name: str) -> None:
+    hole = [(4.0, 4.0), (6.0, 4.0), (6.0, 6.0), (4.0, 6.0)]
+    png = render_map(
+        [Area(name="tuin", boundary=SQUARE, obstacles=[hole], index=0)],
+        (5.0, 8.0),
+        BLADE_TRAIL,
+        palette=PALETTES[name],
+        active_area=0,
+        notice="hello",
+    )
+    assert _open(png).size[0] == 800
+
+
+def test_the_transparent_palette_has_alpha_and_cut_out_obstacles() -> None:
+    hole = [(4.0, 4.0), (6.0, 4.0), (6.0, 6.0), (4.0, 6.0)]
+    png = render_map(
+        [Area(name="", boundary=SQUARE, obstacles=[hole])], None, palette=PALETTES["natural"]
+    )
+    image = Image.open(BytesIO(png))
+    assert image.mode == "RGBA"
+    assert image.getpixel((3, 3))[3] == 0  # background outside the lawn
+    assert image.getpixel((400, 400))[3] == 0  # the obstacle is a hole
+    assert image.getpixel((400, 523))[3] == 255  # lawn

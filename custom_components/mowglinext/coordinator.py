@@ -22,6 +22,9 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.event import async_track_time_interval
 
+from .const import DEFAULT_MAP_STYLE
+from .map_render import PALETTES
+
 _LOGGER = logging.getLogger(__name__)
 
 # Topic suffixes carrying JSON, mapped 1:1 to the key their parsed payload is
@@ -85,6 +88,10 @@ class MowglinextHub:
         # is actually pressed (mowglinext#637 — indices are not stable), not
         # cached from whenever it was picked.
         self.pending_area_name: str | None = None
+        # UI preference for the map camera's colours, set by the "Map style"
+        # select entity (which restores it across restarts). Held here so the
+        # camera can react to it like it reacts to any other update.
+        self.map_style: str = DEFAULT_MAP_STYLE
 
     @property
     def available(self) -> bool:
@@ -212,6 +219,14 @@ class MowglinextHub:
             self._listeners[suffix].remove(listener)
 
         return _remove
+
+    @callback
+    def async_set_map_style(self, style: str) -> None:
+        """Change the map camera's colour style; unknown or unchanged styles are ignored."""
+        if style == self.map_style or style not in PALETTES:
+            return
+        self.map_style = style
+        self._notify("map_style")
 
     async def async_publish_command(self, command: int) -> None:
         """Fire-and-forget: publish a HighLevelControl command code.

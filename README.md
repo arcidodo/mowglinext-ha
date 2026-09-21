@@ -56,7 +56,19 @@ mower too).
   `<prefix>/area_boundary` (polygons, in metres from the mower's datum) and `<prefix>/gps`
   (projected through the same datum with the mower's own equirectangular formula), and needs
   neither a satellite-tile service nor an extra HACS card. The trail restarts whenever a new mow
-  session begins (the mower entering `UNDOCKING`).
+  session begins (the mower entering `UNDOCKING`). What is drawn:
+  - the area being worked (`<prefix>/high_level_status` `current_area`, while MOWING / PLANNING /
+    TRANSIT) at full colour and the other areas dimmed;
+  - the trail: stretches driven **with the blade running** (`<prefix>/status` `mower_motor_rpm`
+    above 300) as a stripe as wide as the cut (18 cm), so you see what has really been mowed; the
+    rest as a thin line. No trail is recorded while the mower is on the charger, so GPS jitter at
+    the dock does not scribble over the map;
+  - the mower's marker coloured by RTK quality (`<prefix>/rtk_status`): fixed green, float
+    orange, anything else red.
+- A `select` entity ("Map style", configuration category) with the map's colour style: `natural`
+  (default; transparent, so it takes on the colour of the card behind it), `classic`, `light` or
+  `night`. It is a dashboard preference: it works while the mower is offline and is restored
+  after a restart.
 - A `select` entity ("Area to start") listing your recorded mow areas by name, plus a companion
   "Start selected area" button — pick an area, then press the button to start mowing it now, ahead
   of the normal iteration order. Split into two steps so opening the dropdown (or an automation
@@ -85,7 +97,8 @@ mower too).
   instead of plotting the mower thousands of kilometres away. Fixes further than 5 km from the
   datum are ignored the same way.
 - The map camera is schematic: no satellite background, no dock marker (the dock pose is not on
-  the MQTT contract yet) and no heading arrow. The trail is kept in memory only, so it starts empty
+  the MQTT contract yet), no heading arrow, and no mowed-versus-remaining coverage (only where the
+  blade has actually been, since this integration started). The trail is kept in memory only, so it starts empty
   after a Home Assistant restart until the mower moves again.
 - Commands are fire-and-forget over MQTT — there is no acknowledgement. The `lawn_mower` entity
   updates once the next `high_level_status` payload arrives (up to `publish_rate`, 1 Hz by
