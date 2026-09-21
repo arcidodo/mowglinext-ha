@@ -26,6 +26,7 @@ from .map_render import (
     Point,
     TrailBuffer,
     is_session_start,
+    PLAUSIBLE_RADIUS_M,
     parse_areas,
     parse_datum,
     render_map,
@@ -45,8 +46,17 @@ async def async_setup_entry(
     async_add_entities([MowglinextMapCamera(hub)])
 
 
+def _notice(payload: Any, position: Point | None) -> str | None:
+    """Why the mower is missing from the picture, when it is."""
+    if position is not None or not parse_areas(payload):
+        return None
+    if parse_datum(payload) is None:
+        return "Mower position unavailable: the mower reports no map datum (update its software)"
+    return "Waiting for a GPS fix"
+
+
 def _render(payload: Any, position: Point | None, trail: list[Point]) -> bytes:
-    return render_map(parse_areas(payload), position, trail)
+    return render_map(parse_areas(payload), position, trail, notice=_notice(payload, position))
 
 
 class MowglinextMapCamera(MowglinextEntity, Camera):
@@ -126,7 +136,7 @@ class MowglinextMapCamera(MowglinextEntity, Camera):
         ):
             return False
         position = to_enu(lat, lon, datum[0], datum[1])
-        if position == self._position:
+        if position == self._position or max(map(abs, position)) > PLAUSIBLE_RADIUS_M:
             return False
         self._position = position
         self._trail.add(position)

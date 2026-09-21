@@ -79,6 +79,11 @@ mower too).
   native "recording" or "manual mowing" activity) — the raw `state_name`/`sub_state_name` survive
   as `lawn_mower` attributes and on the diagnostic "State" sensor for anyone who needs the exact
   substate.
+- The map needs the mower to publish a real map datum in `<prefix>/area_boundary`. A mower that
+  reports datum 0/0 (its "not set" value, e.g. a release from before the launch file passed the
+  datum to `mqtt_bridge_node`) still shows the lawn, with a note that the position is unavailable,
+  instead of plotting the mower thousands of kilometres away. Fixes further than 5 km from the
+  datum are ignored the same way.
 - The map camera is schematic: no satellite background, no dock marker (the dock pose is not on
   the MQTT contract yet) and no heading arrow. The trail is kept in memory only, so it starts empty
   after a Home Assistant restart until the mower moves again.

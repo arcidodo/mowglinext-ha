@@ -36,6 +36,10 @@ MOWER_FILL = (255, 82, 82)
 MOWER_OUTLINE = (255, 255, 255)
 TEXT = (230, 236, 240)
 
+# A garden mower does not roam further than this from its map datum; a fix that
+# projects beyond it is garbage (or the datum is wrong) and is not plotted.
+PLAUSIBLE_RADIUS_M = 5000.0
+
 _SUPERSAMPLE = 2
 _SCALE_BAR_STEPS_M = (1, 2, 5, 10, 20, 50, 100, 200)
 
@@ -91,6 +95,10 @@ def parse_datum(payload: Any) -> tuple[float, float] | None:
         return None
     lat, lon = payload.get("datum_lat"), payload.get("datum_lon")
     if not all(isinstance(v, (int, float)) and math.isfinite(v) for v in (lat, lon)):
+        return None
+    if lat == 0 and lon == 0:
+        # The mower's "not set" value: a bridge that was never given the datum
+        # publishes 0/0, and projecting a real fix through it lands ~6000 km away.
         return None
     return float(lat), float(lon)
 
@@ -162,6 +170,7 @@ def render_map(
     width: int = 800,
     min_height: int = 360,
     max_height: int = 1000,
+    notice: str | None = None,
 ) -> bytes:
     """Render the lawn(s), the mower's trail and its current position as a PNG.
 
@@ -230,8 +239,22 @@ def render_map(
         )
 
     _draw_scale_bar(draw, scale, height, ss)
+    if notice:
+        _draw_notice(draw, notice, ss)
 
     return _encode(image.resize((width, height), Image.LANCZOS))
+
+
+def _draw_notice(draw: ImageDraw.ImageDraw, text: str, ss: int) -> None:
+    """A one-line status message, top-left, on a dark strip so it stays legible."""
+    font = _font(13 * ss)
+    left, top, right, bottom = draw.textbbox((0, 0), text, font=font)
+    pad = 6 * ss
+    x0, y0 = 10 * ss, 10 * ss
+    draw.rectangle(
+        (x0, y0, x0 + (right - left) + 2 * pad, y0 + (bottom - top) + 2 * pad), fill=BACKGROUND
+    )
+    draw.text((x0 + pad - left, y0 + pad - top), text, font=font, fill=OBSTACLE_OUTLINE)
 
 
 def _draw_scale_bar(draw: ImageDraw.ImageDraw, scale: float, height: int, ss: int) -> None:

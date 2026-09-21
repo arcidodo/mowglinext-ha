@@ -166,3 +166,29 @@ async def test_unavailable_when_the_mower_is_offline(hass: HomeAssistant, mqtt_m
 
     await _fire(hass, "available", "offline")
     assert hass.states.get(CAMERA).state == "unavailable"
+
+
+async def test_zero_datum_still_shows_the_lawn_but_no_position(
+    hass: HomeAssistant, mqtt_mock
+) -> None:
+    await _setup_entry(hass, mqtt_mock)
+    await _make_available(hass)
+    await _fire(hass, "area_boundary", {**AREA_BOUNDARY, "datum_lat": 0.0, "datum_lon": 0.0})
+    await _fix(hass, 5.0)  # a real fix, projected through datum 0/0 it would be ~6000 km away
+
+    assert "position_x" not in hass.states.get(CAMERA).attributes
+    image = await async_get_image(hass, CAMERA)
+    # The lawn alone (10 m square -> 800x800), not a continent-sized empty map.
+    assert _png(image.content).size == (800, 800)
+
+
+async def test_an_implausibly_distant_fix_is_not_plotted(hass: HomeAssistant, mqtt_mock) -> None:
+    await _setup_entry(hass, mqtt_mock)
+    await _make_available(hass)
+    await _fire(hass, "area_boundary", AREA_BOUNDARY)
+    await _fix(hass, 5.0)
+    await _fix(hass, 200_000.0)  # 200 km north of the datum
+
+    attrs = hass.states.get(CAMERA).attributes
+    assert attrs["position_y"] == pytest.approx(5.0, abs=0.01)
+    assert attrs["trail_points"] == 1

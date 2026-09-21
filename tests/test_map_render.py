@@ -81,6 +81,13 @@ def test_parse_datum() -> None:
     assert parse_datum(None) is None
 
 
+def test_zero_datum_means_not_set() -> None:
+    # A bridge that was never given the datum publishes 0/0; using it would put a real
+    # fix ~6000 km from the lawn.
+    assert parse_datum({"datum_lat": 0.0, "datum_lon": 0.0}) is None
+    assert parse_datum({"datum_lat": 0.0, "datum_lon": 4.5}) == (0.0, 4.5)
+
+
 # --- trail -----------------------------------------------------------------------------------
 
 
@@ -158,3 +165,11 @@ def test_view_grows_to_keep_the_mower_visible_outside_the_boundary() -> None:
 def test_position_only_still_renders() -> None:
     image = _open(render_map([], (2.0, 3.0)))
     assert image.size[0] == 800
+
+
+def test_notice_is_drawn_on_the_image() -> None:
+    area = Area(name="", boundary=SQUARE)
+    plain = render_map([area], None)
+    with_notice = render_map([area], None, notice="Waiting for a GPS fix")
+    assert plain != with_notice
+    assert _open(with_notice).size == _open(plain).size
