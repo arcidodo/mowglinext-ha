@@ -20,6 +20,7 @@ PLATFORMS: list[Platform] = [
     Platform.DEVICE_TRACKER,
     Platform.BUTTON,
     Platform.SELECT,
+    Platform.CAMERA,
 ]
 
 

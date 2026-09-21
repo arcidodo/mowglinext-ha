@@ -49,6 +49,14 @@ mower too).
 - An `binary_sensor` for the emergency latch, and a "Reset emergency" button.
 - A `device_tracker` entity backed by `<prefix>/gps` (real lat/lon), so the mower can show up
   on a Home Assistant map — not `<prefix>/position`, which is in the mower's local odom frame.
+- A `camera` entity ("Map", `camera.mowgli_map`): a PNG of your recorded mowing areas (and their
+  obstacles), the mower's current position and its trail since the current mow session started.
+  It is a camera entity because cards such as `custom:lawn-mower-card` take a camera for their map
+  preview: pick `camera.mowgli_map` as that card's camera entity. It is built from
+  `<prefix>/area_boundary` (polygons, in metres from the mower's datum) and `<prefix>/gps`
+  (projected through the same datum with the mower's own equirectangular formula), and needs
+  neither a satellite-tile service nor an extra HACS card. The trail restarts whenever a new mow
+  session begins (the mower entering `UNDOCKING`).
 - A `select` entity ("Area to start") listing your recorded mow areas by name, plus a companion
   "Start selected area" button — pick an area, then press the button to start mowing it now, ahead
   of the normal iteration order. Split into two steps so opening the dropdown (or an automation
@@ -71,6 +79,9 @@ mower too).
   native "recording" or "manual mowing" activity) — the raw `state_name`/`sub_state_name` survive
   as `lawn_mower` attributes and on the diagnostic "State" sensor for anyone who needs the exact
   substate.
+- The map camera is schematic: no satellite background, no dock marker (the dock pose is not on
+  the MQTT contract yet) and no heading arrow. The trail is kept in memory only, so it starts empty
+  after a Home Assistant restart until the mower moves again.
 - Commands are fire-and-forget over MQTT — there is no acknowledgement. The `lawn_mower` entity
   updates once the next `high_level_status` payload arrives (up to `publish_rate`, 1 Hz by
   default, after the command is sent), not instantly.
