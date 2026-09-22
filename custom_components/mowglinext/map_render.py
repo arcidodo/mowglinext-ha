@@ -65,6 +65,7 @@ class Palette:
     mower_fill: RGB  # used when the RTK quality is unknown
     mower_outline: RGB
     dock: RGB
+    planned_path: RGB
     text: RGB
     notice: RGB
 
@@ -81,6 +82,7 @@ PALETTES: dict[str, Palette] = {
         mower_fill=(255, 82, 82),
         mower_outline=(255, 255, 255),
         dock=(129, 212, 250),
+        planned_path=(179, 136, 255),
         text=(230, 236, 240),
         notice=(224, 160, 48),
     ),
@@ -95,6 +97,7 @@ PALETTES: dict[str, Palette] = {
         mower_fill=(255, 112, 67),
         mower_outline=(255, 255, 255),
         dock=(79, 195, 247),
+        planned_path=(206, 147, 216),
         text=(255, 255, 255),
         notice=(255, 213, 79),
     ),
@@ -108,6 +111,7 @@ PALETTES: dict[str, Palette] = {
         mower_fill=(229, 57, 53),
         mower_outline=(255, 255, 255),
         dock=(2, 119, 189),
+        planned_path=(106, 27, 154),
         text=(33, 43, 36),
         notice=(191, 96, 0),
     ),
@@ -122,6 +126,7 @@ PALETTES: dict[str, Palette] = {
         mower_fill=(255, 145, 0),
         mower_outline=(255, 255, 255),
         dock=(79, 195, 247),
+        planned_path=(213, 0, 249),
         text=(224, 224, 224),
         notice=(255, 171, 64),
     ),
@@ -239,6 +244,34 @@ def parse_pose(payload: Any) -> tuple[Point, float] | None:
     ):
         return None
     return (float(values[0]), float(values[1])), float(values[2])
+
+
+# The GUI's own map view (gui/web/src/pages/MapPage.tsx SUBPATH_GAP_M) splits
+# <prefix>/coverage_path the same way: it is a raw concatenation of segments, and
+# consecutive points can be far apart where the plan jumps between segments that
+# are not driven directly across.
+PLANNED_PATH_GAP_M = 0.75
+
+
+def parse_coverage_path(payload: Any) -> list[Point]:
+    """Points of a <prefix>/coverage_path payload; malformed entries are dropped."""
+    if not isinstance(payload, dict):
+        return []
+    return _points(payload.get("points"))
+
+
+def split_planned_path(points: Sequence[Point]) -> list[list[Point]]:
+    """`points` cut into runs at any gap wider than PLANNED_PATH_GAP_M."""
+    runs: list[list[Point]] = []
+    current: list[Point] = []
+    for point in points:
+        if current and math.hypot(point[0] - current[-1][0], point[1] - current[-1][1]) > PLANNED_PATH_GAP_M:
+            runs.append(current)
+            current = []
+        current.append(point)
+    if current:
+        runs.append(current)
+    return runs
 
 
 # --- interpreting the other topics ------------------------------------------------------------
@@ -434,6 +467,7 @@ def render_map(
     tool_width_m: float = DEFAULT_TOOL_WIDTH_M,
     heading: float | None = None,
     dock: Dock | None = None,
+    planned_path: Sequence[Point] = (),
 ) -> bytes:
     """Render the lawn(s), the mower's trail and its current position as a PNG.
 
@@ -443,6 +477,7 @@ def render_map(
     are drawn as a stripe as wide as the cut, the rest as a thin line. When
     `active_area` names one of the areas, the others are dimmed. `heading` (radians,
     CCW from east) turns the mower's dot into an arrow; `dock` adds the charger.
+    `planned_path` is drawn as a dashed line, split into runs at PLANNED_PATH_GAP_M.
     """
     if not areas and position is None:
         return render_placeholder(
@@ -456,6 +491,7 @@ def render_map(
         every_point.append(position)
     if dock is not None:
         every_point.append((dock.x, dock.y))
+    every_point += list(planned_path)
 
     xs = [p[0] for p in every_point]
     ys = [p[1] for p in every_point]
@@ -513,6 +549,10 @@ def render_map(
     if dock is not None:
         _draw_dock(draw, px, dock, scale, ss, palette)
 
+    for run in split_planned_path(planned_path):
+        if len(run) >= 2:
+            _draw_dashed_line(draw, [px(p) for p in run], palette.planned_path, ss)
+
     runs = list(_runs(samples))
     stripe_px = max(3.0, tool_width_m * scale) * ss
     for blading, run in runs:
@@ -539,6 +579,39 @@ def render_map(
         _draw_notice(draw, notice, ss, palette)
 
     return _finish(image.resize((width, height), Image.LANCZOS), palette)
+
+
+def _draw_dashed_line(
+    draw: ImageDraw.ImageDraw, points: list[Point], colour: RGB, ss: int, dash_px: float = 8.0
+) -> None:
+    """A polyline drawn as dashes, so the PLANNED path reads as distinct from the
+    solid trail/mowed lines the mower has actually driven."""
+    dash = dash_px * ss
+    fill = _opaque(colour)
+    # Thicker than the trail (2*ss): a thin dashed line loses most of its colour to the
+    # final LANCZOS downsize, which needs several source pixels of width to survive intact.
+    width = max(4 * ss, 3)
+    carry = 0.0  # remaining dash length owed from the previous segment
+    on = True
+    for (x0, y0), (x1, y1) in zip(points, points[1:]):
+        length = math.hypot(x1 - x0, y1 - y0)
+        if length == 0:
+            continue
+        ux, uy = (x1 - x0) / length, (y1 - y0) / length
+        pos = 0.0
+        remaining = dash - carry if carry else dash
+        while pos < length:
+            step = min(remaining, length - pos)
+            if on:
+                draw.line(
+                    [(x0 + ux * pos, y0 + uy * pos), (x0 + ux * (pos + step), y0 + uy * (pos + step))],
+                    fill=fill,
+                    width=width,
+                )
+            pos += step
+            on = not on
+            remaining = dash
+        carry = pos - length  # how far into the next dash/gap the last one overran
 
 
 def _draw_mower(

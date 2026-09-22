@@ -23,8 +23,10 @@ from custom_components.mowglinext.map_render import (
     is_session_start,
     parse_areas,
     parse_datum,
+    parse_coverage_path,
     parse_dock,
     parse_pose,
+    split_planned_path,
     render_map,
     render_placeholder,
     rtk_marker_colour,
@@ -159,12 +161,9 @@ def test_obstacle_is_cut_out_of_the_lawn() -> None:
 
 
 def _has_colour(image: Image.Image, colour: tuple[int, int, int]) -> bool:
-    width, height = image.size
-    return any(
-        _close(image.getpixel((x, y)), colour, tol=6)
-        for x in range(0, width, 4)
-        for y in range(0, height, 4)
-    )
+    # A full scan, not a coarse grid: a dashed line (the planned path) can be thin enough
+    # that a stride misses every dash entirely.
+    return any(_close(pixel, colour, tol=6) for pixel in image.getdata())
 
 
 def test_view_grows_to_keep_the_mower_visible_outside_the_boundary() -> None:
@@ -390,3 +389,76 @@ def test_without_a_heading_the_marker_is_a_dot() -> None:
     green = (0, 200, 83)
     for dx, dy in ((0, -4), (0, 4), (-4, 0), (4, 0)):
         assert _close(image.getpixel((400 + dx, 400 + dy)), green)
+
+
+# --- planned coverage path ---------------------------------------------------------------------
+
+
+def test_parse_coverage_path() -> None:
+    assert parse_coverage_path({"points": [[1.0, 2.0], [3.0, 4.0]]}) == [(1.0, 2.0), (3.0, 4.0)]
+    assert parse_coverage_path({"points": []}) == []
+    assert parse_coverage_path(None) == []
+    assert parse_coverage_path({}) == []
+
+
+def test_split_planned_path_cuts_at_a_wide_gap() -> None:
+    points = [(0.0, 0.0), (0.5, 0.0), (1.0, 0.0), (5.0, 0.0), (5.5, 0.0)]
+    assert split_planned_path(points) == [[(0.0, 0.0), (0.5, 0.0), (1.0, 0.0)], [(5.0, 0.0), (5.5, 0.0)]]
+
+
+def test_split_planned_path_edge_cases() -> None:
+    assert split_planned_path([]) == []
+    assert split_planned_path([(1.0, 1.0)]) == [[(1.0, 1.0)]]
+
+
+def _dense_line(p0: tuple[float, float], p1: tuple[float, float], step_m: float = 0.2) -> list[tuple[float, float]]:
+    """A straight line from p0 to p1, sampled densely -- a real plan's points are close
+    together (F2C waypoints), so PLANNED_PATH_GAP_M (0.75 m) never splits WITHIN a run."""
+    length = math.hypot(p1[0] - p0[0], p1[1] - p0[1])
+    steps = max(2, int(length / step_m) + 1)
+    return [
+        (p0[0] + (p1[0] - p0[0]) * t / (steps - 1), p0[1] + (p1[1] - p0[1]) * t / (steps - 1))
+        for t in range(steps)
+    ]
+
+
+def test_the_planned_path_is_drawn() -> None:
+    palette = PALETTES["classic"]
+    plain = _open(render_map([Area(name="", boundary=SQUARE)], None))
+    planned = _open(
+        render_map(
+            [Area(name="", boundary=SQUARE)], None, planned_path=_dense_line((1.0, 5.0), (8.0, 5.0))
+        )
+    )
+    assert not _has_colour(plain, palette.planned_path)
+    assert _has_colour(planned, palette.planned_path)
+
+
+def test_a_gap_in_the_planned_path_is_not_drawn_as_one_line() -> None:
+    # Two short, densely-sampled runs far apart: the corridor between them must stay
+    # background, not a single line connecting them (split_planned_path cuts there).
+    palette = PALETTES["classic"]
+    path = _dense_line((1.0, 5.0), (2.0, 5.0)) + _dense_line((28.0, 5.0), (29.0, 5.0))
+    image = _open(
+        render_map(
+            [Area(name="", boundary=[(0.0, 0.0), (30.0, 0.0), (30.0, 10.0), (0.0, 10.0)])],
+            None,
+            planned_path=path,
+        )
+    )
+    midpoint_px = image.size[0] // 2
+    row = [image.getpixel((x, image.size[1] // 2)) for x in range(midpoint_px - 20, midpoint_px + 20)]
+    assert not any(_close(p, palette.planned_path, tol=6) for p in row)
+
+
+def test_the_view_grows_to_include_the_planned_path() -> None:
+    palette = PALETTES["classic"]
+    image = _open(
+        render_map(
+            [Area(name="", boundary=SQUARE)],
+            None,
+            planned_path=_dense_line((20.0, 5.0), (25.0, 5.0)),
+        )
+    )
+    assert _has_colour(image, palette.planned_path)
+    assert _has_colour(image, palette.lawn_fill)

@@ -45,6 +45,7 @@ from .map_render import (
     is_session_start,
     parse_areas,
     parse_datum,
+    parse_coverage_path,
     parse_dock,
     parse_pose,
     render_map,
@@ -96,6 +97,7 @@ def _render(
     heading: float | None,
     width: int,
     max_height: int,
+    coverage_path_payload: Any,
 ) -> bytes:
     return render_map(
         parse_areas(payload),
@@ -109,6 +111,7 @@ def _render(
         marker_colour=marker_colour,
         heading=heading,
         dock=parse_dock(payload),
+        planned_path=parse_coverage_path(coverage_path_payload),
     )
 
 
@@ -151,6 +154,7 @@ class MowglinextMapCamera(MowglinextEntity, Camera):
         self._extra_unsubs = [
             self.hub.async_add_listener("gps", self._handle_gps),
             self.hub.async_add_listener("pose", self._handle_pose),
+            self.hub.async_add_listener("coverage_path", self._handle_coverage_path),
             self.hub.async_add_listener("area_boundary", self._handle_area_boundary),
             self.hub.async_add_listener("status", self._handle_status),
             self.hub.async_add_listener("rtk_status", self._handle_rtk_status),
@@ -223,6 +227,11 @@ class MowglinextMapCamera(MowglinextEntity, Camera):
     def _handle_gps(self) -> None:
         if self._ingest_position():
             self._render_version += 1
+        self._write_state_if_due()
+
+    @callback
+    def _handle_coverage_path(self) -> None:
+        self._render_version += 1
         self._write_state_if_due()
 
     @callback
@@ -308,6 +317,7 @@ class MowglinextMapCamera(MowglinextEntity, Camera):
                     self._marker_colour,
                     self._heading,
                     *size,
+                    self.hub.data.get("coverage_path"),
                 )
             )
             self._rendered_version = version
