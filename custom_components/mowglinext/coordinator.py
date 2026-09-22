@@ -22,7 +22,12 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.event import async_track_time_interval
 
-from .const import CONF_MOWER_HOST, DEFAULT_MAP_STYLE
+from .const import (
+    CONF_MOWER_HOST,
+    DEFAULT_CONFIGURATION_URL,
+    DEFAULT_MAP_STYLE,
+    MOWER_GUI_PORT,
+)
 from .map_render import PALETTES
 
 _LOGGER = logging.getLogger(__name__)
@@ -38,6 +43,7 @@ JSON_TOPICS: tuple[str, ...] = (
     "gps",
     "pose",
     "coverage_path",
+    "host",
     "rtk_status",
     "areas",
     "area_boundary",
@@ -237,6 +243,16 @@ class MowglinextHub:
             return
         self.map_style = style
         self._notify("map_style")
+
+    @property
+    def configuration_url(self) -> str:
+        """The device page's "Visit" link: the mower's own GUI when a host is known
+        (manually entered in the Options flow, or auto-detected via <prefix>/host),
+        else the project's GitHub repo. A manual entry wins -- an explicit operator
+        override, e.g. a reachable address different from the mower's own interface.
+        """
+        host = self.mower_host or (self.data.get("host") or {}).get("ip") or ""
+        return f"http://{host}:{MOWER_GUI_PORT}" if host else DEFAULT_CONFIGURATION_URL
 
     @callback
     def async_set_map_rotation_deg(self, degrees: float) -> None:

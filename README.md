@@ -36,10 +36,13 @@ Copy `custom_components/mowglinext/` into your Home Assistant config directory's
 
 ## Options
 
-Settings → Devices & services → MowgliNext → **Configure**: optionally enter the mower's own
-hostname or IP address so the device page's **Visit** link opens the mower's own web interface
-(port 4006) instead of this project's GitHub repo. Left blank (the default), the Visit link keeps
-pointing at GitHub.
+The device page's **Visit** link opens the mower's own web interface (port 4006) automatically,
+using `<prefix>/host` — the mower's own LAN IP, which it publishes itself (needs a mower release
+with that topic; older mower software publishes nothing there, and the link falls back to this
+project's GitHub repo). Settings → Devices & services → MowgliNext → **Configure** lets you
+enter a host manually instead, which always wins over the auto-detected one — useful if Home
+Assistant needs a different reachable address than the mower's own interface (a different VLAN, a
+VPN, port forwarding, ...). Leave it blank to use the automatic value.
 
 ## Setup
 

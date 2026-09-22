@@ -7,7 +7,7 @@ from collections.abc import Callable
 
 from homeassistant.helpers.entity import DeviceInfo, Entity
 
-from .const import DEFAULT_CONFIGURATION_URL, DOMAIN, MOWER_GUI_PORT
+from .const import DOMAIN
 from .coordinator import MowglinextHub
 
 
@@ -29,17 +29,17 @@ class MowglinextEntity(Entity):
 
     @property
     def device_info(self) -> DeviceInfo:
-        # Computed live (not cached in __init__) so a mower_host added or changed
-        # later via the Options flow (Settings -> Devices & services -> MowgliNext ->
-        # Configure) takes effect on the entry's reload, without needing every
-        # entity re-created.
-        host = self.hub.mower_host
+        # Computed live (not cached in __init__), so a mower_host set via the Options
+        # flow takes effect on the entry's reload without recreating every entity.
+        # __init__.py additionally pushes hub.configuration_url into the device
+        # registry directly when <prefix>/host arrives, since that can happen without
+        # a reload (see its own comment for why this property alone isn't enough).
         return DeviceInfo(
             identifiers={(DOMAIN, self.hub.device_id)},
             name="Mowgli",
             manufacturer="MowgliNext",
             model="Robot mower",
-            configuration_url=f"http://{host}:{MOWER_GUI_PORT}" if host else DEFAULT_CONFIGURATION_URL,
+            configuration_url=self.hub.configuration_url,
         )
 
     @property

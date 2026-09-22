@@ -152,3 +152,58 @@ async def test_visit_link_points_at_the_mower_after_setting_a_host(
     device = device_registry.async_get_device(identifiers={(DOMAIN, hub.device_id)})
     assert device is not None
     assert device.configuration_url == f"http://192.168.1.50:{MOWER_GUI_PORT}"
+
+
+async def test_visit_link_auto_detects_from_the_mower(hass: HomeAssistant, mqtt_mock) -> None:
+    from pytest_homeassistant_custom_component.common import (
+        MockConfigEntry,
+        async_fire_mqtt_message,
+    )
+    from homeassistant.helpers import device_registry as dr
+
+    from custom_components.mowglinext.const import DOMAIN, MOWER_GUI_PORT
+
+    entry = MockConfigEntry(domain=DOMAIN, data={CONF_TOPIC_PREFIX: "mowgli"})
+    entry.add_to_hass(hass)
+    await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+
+    async_fire_mqtt_message(hass, "mowgli/host", '{"ip": "192.168.12.10"}')
+    await hass.async_block_till_done()
+
+    device_registry = dr.async_get(hass)
+    hub = hass.data[DOMAIN][entry.entry_id]
+    device = device_registry.async_get_device(identifiers={(DOMAIN, hub.device_id)})
+    assert device is not None
+    assert device.configuration_url == f"http://192.168.12.10:{MOWER_GUI_PORT}"
+
+
+async def test_manual_host_option_overrides_the_mowers_own(
+    hass: HomeAssistant, mqtt_mock
+) -> None:
+    from pytest_homeassistant_custom_component.common import (
+        MockConfigEntry,
+        async_fire_mqtt_message,
+    )
+    from homeassistant.helpers import device_registry as dr
+
+    from custom_components.mowglinext.const import CONF_MOWER_HOST, DOMAIN, MOWER_GUI_PORT
+
+    entry = MockConfigEntry(domain=DOMAIN, data={CONF_TOPIC_PREFIX: "mowgli"})
+    entry.add_to_hass(hass)
+    await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+
+    async_fire_mqtt_message(hass, "mowgli/host", '{"ip": "192.168.12.10"}')
+    await hass.async_block_till_done()
+
+    result = await hass.config_entries.options.async_init(entry.entry_id)
+    await hass.config_entries.options.async_configure(
+        result["flow_id"], {CONF_MOWER_HOST: "10.0.0.5"}
+    )
+    await hass.async_block_till_done()
+
+    device_registry = dr.async_get(hass)
+    hub = hass.data[DOMAIN][entry.entry_id]
+    device = device_registry.async_get_device(identifiers={(DOMAIN, hub.device_id)})
+    assert device.configuration_url == f"http://10.0.0.5:{MOWER_GUI_PORT}"
