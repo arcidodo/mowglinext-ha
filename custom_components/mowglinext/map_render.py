@@ -41,6 +41,8 @@ DEFAULT_TOOL_WIDTH_M = 0.18
 # high_level_status states in which `current_area` is the area being worked.
 ACTIVE_AREA_STATES = frozenset({"MOWING", "PLANNING", "TRANSIT"})
 
+MINT: RGB = (69, 214, 136)  # gui/web/src/pages/MapStyle.tsx's brand mint, '#45D688'
+
 RTK_FIXED_COLOUR: RGB = (0, 200, 83)
 RTK_FLOAT_COLOUR: RGB = (255, 152, 0)
 RTK_NONE_COLOUR: RGB = (244, 67, 54)
@@ -82,7 +84,7 @@ PALETTES: dict[str, Palette] = {
         mower_fill=(255, 82, 82),
         mower_outline=(255, 255, 255),
         dock=(129, 212, 250),
-        planned_path=(179, 136, 255),
+        planned_path=MINT,
         text=(230, 236, 240),
         notice=(224, 160, 48),
     ),
@@ -97,7 +99,7 @@ PALETTES: dict[str, Palette] = {
         mower_fill=(255, 112, 67),
         mower_outline=(255, 255, 255),
         dock=(79, 195, 247),
-        planned_path=(206, 147, 216),
+        planned_path=MINT,
         text=(255, 255, 255),
         notice=(255, 213, 79),
     ),
@@ -111,7 +113,7 @@ PALETTES: dict[str, Palette] = {
         mower_fill=(229, 57, 53),
         mower_outline=(255, 255, 255),
         dock=(2, 119, 189),
-        planned_path=(106, 27, 154),
+        planned_path=MINT,
         text=(33, 43, 36),
         notice=(191, 96, 0),
     ),
@@ -126,7 +128,7 @@ PALETTES: dict[str, Palette] = {
         mower_fill=(255, 145, 0),
         mower_outline=(255, 255, 255),
         dock=(79, 195, 247),
-        planned_path=(213, 0, 249),
+        planned_path=MINT,
         text=(224, 224, 224),
         notice=(255, 171, 64),
     ),
@@ -477,7 +479,8 @@ def render_map(
     are drawn as a stripe as wide as the cut, the rest as a thin line. When
     `active_area` names one of the areas, the others are dimmed. `heading` (radians,
     CCW from east) turns the mower's dot into an arrow; `dock` adds the charger.
-    `planned_path` is drawn as a dashed line, split into runs at PLANNED_PATH_GAP_M.
+    `planned_path` is drawn as a thin solid line (matching the GUI's own style), split
+    into runs at PLANNED_PATH_GAP_M.
     """
     if not areas and position is None:
         return render_placeholder(
@@ -551,7 +554,7 @@ def render_map(
 
     for run in split_planned_path(planned_path):
         if len(run) >= 2:
-            _draw_dashed_line(draw, [px(p) for p in run], palette.planned_path, ss)
+            _draw_planned_path_line(draw, [px(p) for p in run], palette.planned_path, ss)
 
     runs = list(_runs(samples))
     stripe_px = max(3.0, tool_width_m * scale) * ss
@@ -581,37 +584,12 @@ def render_map(
     return _finish(image.resize((width, height), Image.LANCZOS), palette)
 
 
-def _draw_dashed_line(
-    draw: ImageDraw.ImageDraw, points: list[Point], colour: RGB, ss: int, dash_px: float = 8.0
-) -> None:
-    """A polyline drawn as dashes, so the PLANNED path reads as distinct from the
-    solid trail/mowed lines the mower has actually driven."""
-    dash = dash_px * ss
-    fill = _opaque(colour)
-    # Thicker than the trail (2*ss): a thin dashed line loses most of its colour to the
-    # final LANCZOS downsize, which needs several source pixels of width to survive intact.
-    width = max(4 * ss, 3)
-    carry = 0.0  # remaining dash length owed from the previous segment
-    on = True
-    for (x0, y0), (x1, y1) in zip(points, points[1:]):
-        length = math.hypot(x1 - x0, y1 - y0)
-        if length == 0:
-            continue
-        ux, uy = (x1 - x0) / length, (y1 - y0) / length
-        pos = 0.0
-        remaining = dash - carry if carry else dash
-        while pos < length:
-            step = min(remaining, length - pos)
-            if on:
-                draw.line(
-                    [(x0 + ux * pos, y0 + uy * pos), (x0 + ux * (pos + step), y0 + uy * (pos + step))],
-                    fill=fill,
-                    width=width,
-                )
-            pos += step
-            on = not on
-            remaining = dash
-        carry = pos - length  # how far into the next dash/gap the last one overran
+def _draw_planned_path_line(draw: ImageDraw.ImageDraw, points: list[Point], colour: RGB, ss: int) -> None:
+    """A thin solid line, matching the robot GUI's own coverage-path style
+    (gui/web/src/types/map.ts PathFeature: a plain stroke, no dash pattern). Slightly
+    wider than the trail (2*ss): against the lawn's own greens, a thinner mint line
+    loses too much of its colour to the final LANCZOS downsize."""
+    draw.line(points, fill=_opaque(colour), width=max(3 * ss, 2), joint="curve")
 
 
 def _draw_mower(

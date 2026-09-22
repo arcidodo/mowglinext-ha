@@ -71,10 +71,10 @@ mower too).
     dot;
   - the mower's marker coloured by RTK quality (`<prefix>/rtk_status`): fixed green, float
     orange, anything else red;
-  - the **planned** route (headland rings, then serpentine swaths) as a dashed line, from
-    `<prefix>/coverage_path` — needs a mower release that publishes it
-    (mowglinext/mowglinext#726's sibling feature). Drawn under the trail, so what has already
-    been mowed stands out on top of the plan.
+  - the **planned** route (headland rings, then serpentine swaths) as a thin mint line —
+    matching the mower's own GUI map style — from `<prefix>/coverage_path` (needs a mower
+    release that publishes it; mowglinext/mowglinext#726's sibling feature). Drawn under
+    the trail, so what has already been mowed stands out on top of the plan.
 - A `select` entity ("Map style", configuration category) with the map's colour style: `natural`
   (default; transparent, so it takes on the colour of the card behind it), `classic`, `light` or
   `night`. It is a dashboard preference: it works while the mower is offline and is restored
