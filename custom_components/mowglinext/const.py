@@ -12,6 +12,15 @@ DOMAIN = "mowglinext"
 CONF_TOPIC_PREFIX = "topic_prefix"
 DEFAULT_TOPIC_PREFIX = "mowgli"
 
+# Optional: the mower's own hostname/IP, set via the integration's Options flow
+# (Settings -> Devices & services -> MowgliNext -> Configure) so the device page's
+# "Visit" link can open the mower's own GUI (port 4006) instead of the project's
+# GitHub repo. Not asked for at initial setup: MQTT alone never gives us the
+# mower's address, and it's optional -- the GitHub link is a fine default.
+CONF_MOWER_HOST = "mower_host"
+MOWER_GUI_PORT = 4006
+DEFAULT_CONFIGURATION_URL = "https://github.com/mowglinext/mowglinext"
+
 # Colour style of the map camera (see map_render.PALETTES for the choices).
 DEFAULT_MAP_STYLE = "natural"
 

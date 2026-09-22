@@ -22,7 +22,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.event import async_track_time_interval
 
-from .const import DEFAULT_MAP_STYLE
+from .const import CONF_MOWER_HOST, DEFAULT_MAP_STYLE
 from .map_render import PALETTES
 
 _LOGGER = logging.getLogger(__name__)
@@ -70,6 +70,9 @@ class MowglinextHub:
         self.hass = hass
         self.entry = entry
         self.topic_prefix = topic_prefix
+        # Optional, set via the integration's Options flow -- see const.py's
+        # CONF_MOWER_HOST doc comment for why this isn't asked for at setup.
+        self.mower_host = entry.options.get(CONF_MOWER_HOST, "").strip()
         # No <prefix>/available has ever arrived yet: assume unavailable
         # rather than optimistically "online", so entities don't show a
         # stale/wrong state before the first real message.

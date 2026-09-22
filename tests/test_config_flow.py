@@ -59,3 +59,96 @@ async def test_rejects_empty_prefix(hass: HomeAssistant, mqtt_mock) -> None:
     )
     assert result["type"] is FlowResultType.FORM
     assert result["errors"] == {CONF_TOPIC_PREFIX: "invalid_prefix"}
+
+
+async def test_options_flow_defaults_to_empty_host(hass: HomeAssistant, mqtt_mock) -> None:
+    from pytest_homeassistant_custom_component.common import MockConfigEntry
+
+    from custom_components.mowglinext.const import CONF_MOWER_HOST
+
+    entry = MockConfigEntry(domain=DOMAIN, data={CONF_TOPIC_PREFIX: "mowgli"})
+    entry.add_to_hass(hass)
+    await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+
+    result = await hass.config_entries.options.async_init(entry.entry_id)
+    assert result["type"] is FlowResultType.FORM
+    assert result["step_id"] == "init"
+
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"], {CONF_MOWER_HOST: "192.168.1.50"}
+    )
+    await hass.async_block_till_done()
+    assert result["type"] is FlowResultType.CREATE_ENTRY
+    assert entry.options[CONF_MOWER_HOST] == "192.168.1.50"
+
+
+async def test_options_flow_strips_whitespace_and_accepts_blank(
+    hass: HomeAssistant, mqtt_mock
+) -> None:
+    from pytest_homeassistant_custom_component.common import MockConfigEntry
+
+    from custom_components.mowglinext.const import CONF_MOWER_HOST
+
+    entry = MockConfigEntry(domain=DOMAIN, data={CONF_TOPIC_PREFIX: "mowgli"})
+    entry.add_to_hass(hass)
+    await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+
+    result = await hass.config_entries.options.async_init(entry.entry_id)
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"], {CONF_MOWER_HOST: "  192.168.1.50  "}
+    )
+    assert entry.options[CONF_MOWER_HOST] == "192.168.1.50"
+
+    result = await hass.config_entries.options.async_init(entry.entry_id)
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"], {CONF_MOWER_HOST: ""}
+    )
+    assert entry.options[CONF_MOWER_HOST] == ""
+
+
+async def test_visit_link_defaults_to_github_without_a_host(
+    hass: HomeAssistant, mqtt_mock
+) -> None:
+    from pytest_homeassistant_custom_component.common import MockConfigEntry
+
+    from custom_components.mowglinext.const import DEFAULT_CONFIGURATION_URL, DOMAIN
+
+    entry = MockConfigEntry(domain=DOMAIN, data={CONF_TOPIC_PREFIX: "mowgli"})
+    entry.add_to_hass(hass)
+    await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+
+    from homeassistant.helpers import device_registry as dr
+    device_registry = dr.async_get(hass)
+    hub = hass.data[DOMAIN][entry.entry_id]
+    device = device_registry.async_get_device(identifiers={(DOMAIN, hub.device_id)})
+    assert device is not None
+    assert device.configuration_url == DEFAULT_CONFIGURATION_URL
+
+
+async def test_visit_link_points_at_the_mower_after_setting_a_host(
+    hass: HomeAssistant, mqtt_mock
+) -> None:
+    from pytest_homeassistant_custom_component.common import MockConfigEntry
+
+    from custom_components.mowglinext.const import CONF_MOWER_HOST, DOMAIN, MOWER_GUI_PORT
+
+    entry = MockConfigEntry(domain=DOMAIN, data={CONF_TOPIC_PREFIX: "mowgli"})
+    entry.add_to_hass(hass)
+    await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+
+    result = await hass.config_entries.options.async_init(entry.entry_id)
+    await hass.config_entries.options.async_configure(
+        result["flow_id"], {CONF_MOWER_HOST: "192.168.1.50"}
+    )
+    await hass.async_block_till_done()  # the update listener reloads the entry
+
+    from homeassistant.helpers import device_registry as dr
+    device_registry = dr.async_get(hass)
+    hub = hass.data[DOMAIN][entry.entry_id]
+    device = device_registry.async_get_device(identifiers={(DOMAIN, hub.device_id)})
+    assert device is not None
+    assert device.configuration_url == f"http://192.168.1.50:{MOWER_GUI_PORT}"

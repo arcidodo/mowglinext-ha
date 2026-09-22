@@ -34,6 +34,13 @@ identically — you just get a generic icon in the integration list instead of t
 Copy `custom_components/mowglinext/` into your Home Assistant config directory's
 `custom_components/` folder and restart Home Assistant.
 
+## Options
+
+Settings → Devices & services → MowgliNext → **Configure**: optionally enter the mower's own
+hostname or IP address so the device page's **Visit** link opens the mower's own web interface
+(port 4006) instead of this project's GitHub repo. Left blank (the default), the Visit link keeps
+pointing at GitHub.
+
 ## Setup
 
 Settings → Devices & services → Add integration → **MowgliNext** → enter the MQTT topic prefix

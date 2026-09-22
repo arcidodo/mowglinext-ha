@@ -33,7 +33,15 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     hass.data.setdefault(DOMAIN, {})[entry.entry_id] = hub
 
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
+    # Reload on an Options flow change (e.g. mower_host) so the new value takes
+    # effect everywhere that reads it at setup time, notably the device page's
+    # "Visit" link (entity.py's device_info).
+    entry.async_on_unload(entry.add_update_listener(_async_reload_entry))
     return True
+
+
+async def _async_reload_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    await hass.config_entries.async_reload(entry.entry_id)
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:

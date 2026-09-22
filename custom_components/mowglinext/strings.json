@@ -16,5 +16,16 @@
     "error": {
       "invalid_prefix": "Enter a non-empty topic prefix."
     }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "MowgliNext options",
+        "description": "Optional: the mower's own hostname or IP address, so the device page's \"Visit\" link opens the mower's own web interface (port 4006) instead of the project's GitHub repo. Leave blank to keep the GitHub link.",
+        "data": {
+          "mower_host": "Mower hostname or IP"
+        }
+      }
+    }
   }
 }
