@@ -92,7 +92,7 @@ async def test_camera_serves_a_png_map(hass: HomeAssistant, mqtt_mock) -> None:
 
     image = await async_get_image(hass, CAMERA)
     assert image.content_type == "image/png"
-    assert _png(image.content).size[0] == 800
+    assert _png(image.content).size[0] == 640
 
 
 async def test_position_is_projected_through_the_datum(hass: HomeAssistant, mqtt_mock) -> None:
@@ -114,7 +114,7 @@ async def test_without_a_datum_the_map_is_a_placeholder(hass: HomeAssistant, mqt
     attrs = hass.states.get(CAMERA).attributes
     assert "position_x" not in attrs
     image = await async_get_image(hass, CAMERA)
-    assert _png(image.content).size == (800, 400)
+    assert _png(image.content).size == (640, 320)
 
 
 async def test_position_appears_once_the_datum_arrives(hass: HomeAssistant, mqtt_mock) -> None:
@@ -181,8 +181,8 @@ async def test_zero_datum_still_shows_the_lawn_but_no_position(
 
     assert "position_x" not in hass.states.get(CAMERA).attributes
     image = await async_get_image(hass, CAMERA)
-    # The lawn alone (10 m square -> 800x800), not a continent-sized empty map.
-    assert _png(image.content).size == (800, 800)
+    # The lawn alone (10 m square, roughly square view), not a continent-sized empty map.
+    assert _png(image.content).size == (640, 640)
 
 
 async def test_an_implausibly_distant_fix_is_not_plotted(hass: HomeAssistant, mqtt_mock) -> None:
@@ -348,7 +348,7 @@ async def test_the_pose_needs_no_datum(hass: HomeAssistant, mqtt_mock) -> None:
 
     assert hass.states.get(CAMERA).attributes["position_x"] == pytest.approx(4.0)
     image = await async_get_image(hass, CAMERA)
-    assert _png(image.content).size == (800, 800)
+    assert _png(image.content).size == (640, 640)
 
 
 async def test_a_stale_pose_falls_back_to_gps(
@@ -388,3 +388,33 @@ async def test_the_dock_appears_when_the_mower_publishes_one(
 
     await _fire(hass, "area_boundary", {**AREA_BOUNDARY, "dock": {"x": 9.0, "y": 5.0, "yaw": 3.14}})
     assert await _image(hass) != without_dock
+
+
+async def test_camera_renders_smaller_than_the_renderers_own_default(
+    hass: HomeAssistant, mqtt_mock
+) -> None:
+    """render_map()'s own default (800, up to 1000 tall) is for a full-page view; the
+    entity must ask for something smaller so a tall garden does not overflow Home
+    Assistant's "more info" dialog and force the whole page to scroll."""
+    await _setup_entry(hass, mqtt_mock)
+    await _make_available(hass)
+    await _fire(hass, "area_boundary", AREA_BOUNDARY)
+    await _fix(hass, 5.0, 5.0)
+
+    width, height = _png(await _image(hass)).size
+    assert width <= camera_module.DEFAULT_IMAGE_WIDTH
+    assert height <= camera_module.DEFAULT_IMAGE_MAX_HEIGHT
+    assert width < 800  # the bug this guards: it must not silently regress to the old size
+
+
+async def test_an_explicit_size_request_overrides_the_default(
+    hass: HomeAssistant, mqtt_mock
+) -> None:
+    await _setup_entry(hass, mqtt_mock)
+    await _make_available(hass)
+    await _fire(hass, "area_boundary", AREA_BOUNDARY)
+    await _fix(hass, 5.0, 5.0)
+
+    image = await async_get_image(hass, CAMERA, width=300, height=300)
+    width, height = _png(image.content).size
+    assert width <= 300 and height <= 300

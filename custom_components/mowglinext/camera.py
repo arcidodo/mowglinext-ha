@@ -57,6 +57,14 @@ from .map_render import (
 # request from the latest data.
 STATE_WRITE_MIN_INTERVAL_S = 5.0
 
+# render_map()'s own default (800, up to 1000 tall) is sized for a full-page view.
+# Home Assistant's entity "more info" dialog shows a still camera's image near its
+# native pixel size, so a tall/narrow garden at that size could overflow the dialog
+# and force the whole page to scroll. Render smaller by default; an explicit
+# width/height request (e.g. a card asking for a thumbnail) still overrides it.
+DEFAULT_IMAGE_WIDTH = 640
+DEFAULT_IMAGE_MAX_HEIGHT = 640
+
 # A <prefix>/pose older than this is not trusted any more (the localizer stopped
 # publishing, e.g. it lost its fix) and the position falls back to the raw GPS fix.
 POSE_MAX_AGE_S = 10.0
@@ -86,11 +94,15 @@ def _render(
     active_area: int | None,
     marker_colour: RGB | None,
     heading: float | None,
+    width: int,
+    max_height: int,
 ) -> bytes:
     return render_map(
         parse_areas(payload),
         position,
         trail,
+        width=width,
+        max_height=max_height,
         notice=_notice(payload, position),
         palette=PALETTES[style],
         active_area=active_area,
@@ -131,6 +143,7 @@ class MowglinextMapCamera(MowglinextEntity, Camera):
         self._last_write = 0.0
         self._written_available: bool | None = None
         self._png: bytes | None = None
+        self._png_size: tuple[int, int] | None = None
         self._extra_unsubs: list[Callable[[], None]] = []
 
     async def async_added_to_hass(self) -> None:
@@ -275,7 +288,14 @@ class MowglinextMapCamera(MowglinextEntity, Camera):
     async def async_camera_image(
         self, width: int | None = None, height: int | None = None
     ) -> bytes | None:
-        if self._png is None or self._rendered_version != self._render_version:
+        # A caller that asks for a specific size (e.g. a thumbnail) overrides our own
+        # smaller default; render_map fits the content within it, never distorting it.
+        size = (width or DEFAULT_IMAGE_WIDTH, height or DEFAULT_IMAGE_MAX_HEIGHT)
+        if (
+            self._png is None
+            or self._rendered_version != self._render_version
+            or self._png_size != size
+        ):
             version = self._render_version
             self._png = await self.hass.async_add_executor_job(
                 partial(
@@ -287,9 +307,11 @@ class MowglinextMapCamera(MowglinextEntity, Camera):
                     self._active_area,
                     self._marker_colour,
                     self._heading,
+                    *size,
                 )
             )
             self._rendered_version = version
+            self._png_size = size
         return self._png
 
     @property

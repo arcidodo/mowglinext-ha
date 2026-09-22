@@ -102,6 +102,10 @@ mower too).
   datum to `mqtt_bridge_node`) still shows the lawn, with a note that the position is unavailable,
   instead of plotting the mower thousands of kilometres away. Fixes further than 5 km from the
   datum are ignored the same way.
+- The map camera renders at a smaller default size (640×≤640) than `map_render.render_map()`'s
+  own default, so a tall/narrow garden does not overflow Home Assistant's "more info" dialog and
+  force the page to scroll. A caller that requests a specific size (a card asking for a
+  thumbnail) still gets that size instead.
 - The map camera is schematic: no satellite background and no mowed-versus-remaining coverage (only where the
   blade has actually been, since this integration started). The trail is kept in memory only, so it starts empty
   after a Home Assistant restart until the mower moves again.

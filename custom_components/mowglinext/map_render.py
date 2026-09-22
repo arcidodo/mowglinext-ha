@@ -445,7 +445,9 @@ def render_map(
     CCW from east) turns the mower's dot into an arrow; `dock` adds the charger.
     """
     if not areas and position is None:
-        return render_placeholder("Waiting for map data", palette=palette)
+        return render_placeholder(
+            "Waiting for map data", width=width, height=round(width * 0.5), palette=palette
+        )
 
     samples = [_as_sample(item) for item in trail]
     every_point: list[Point] = [p for a in areas for p in a.boundary]
