@@ -98,6 +98,7 @@ def _render(
     width: int,
     max_height: int,
     coverage_path_payload: Any,
+    rotation_deg: float,
 ) -> bytes:
     return render_map(
         parse_areas(payload),
@@ -112,6 +113,7 @@ def _render(
         heading=heading,
         dock=parse_dock(payload),
         planned_path=parse_coverage_path(coverage_path_payload),
+        rotation_deg=rotation_deg,
     )
 
 
@@ -159,6 +161,7 @@ class MowglinextMapCamera(MowglinextEntity, Camera):
             self.hub.async_add_listener("status", self._handle_status),
             self.hub.async_add_listener("rtk_status", self._handle_rtk_status),
             self.hub.async_add_listener("map_style", self._handle_map_style),
+            self.hub.async_add_listener("map_rotation_deg", self._handle_map_rotation),
         ]
         # The broker replays retained data on subscribe, so some may already be here.
         self._read_context()
@@ -213,6 +216,11 @@ class MowglinextMapCamera(MowglinextEntity, Camera):
 
     @callback
     def _handle_map_style(self) -> None:
+        self._render_version += 1
+        self._write_state_if_due(force=True)
+
+    @callback
+    def _handle_map_rotation(self) -> None:
         self._render_version += 1
         self._write_state_if_due(force=True)
 
@@ -318,6 +326,7 @@ class MowglinextMapCamera(MowglinextEntity, Camera):
                     self._heading,
                     *size,
                     self.hub.data.get("coverage_path"),
+                    self.hub.map_rotation_deg,
                 )
             )
             self._rendered_version = version

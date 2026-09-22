@@ -154,6 +154,32 @@ def to_enu(lat: float, lon: float, datum_lat: float, datum_lon: float) -> Point:
     return east, north
 
 
+def rotate_point(point: Point, bearing_deg: float) -> Point:
+    """Rotate a map-frame (east, north) point for display at the given compass bearing.
+
+    `bearing_deg` matches the robot GUI's own "Map Rotation" (Mapbox bearing,
+    gui.map.display.bearing): 0 keeps north up, 90 puts east at the top of the
+    image (the same "which compass direction is up" convention, clockwise-positive).
+    A standard CCW rotation of the (east, north) vector by `bearing_deg` produces
+    exactly that: a point due north (0, 1) rotated by 90 lands at (-1, 0), i.e. due
+    west of the (still north-up-rendered) result -- north end up on the left of the
+    image, matching "facing east" (bearing 90) putting north on your left.
+    """
+    if bearing_deg == 0:
+        return point
+    beta = math.radians(bearing_deg)
+    cos_b, sin_b = math.cos(beta), math.sin(beta)
+    x, y = point
+    return x * cos_b - y * sin_b, x * sin_b + y * cos_b
+
+
+def rotate_heading(heading: float, bearing_deg: float) -> float:
+    """Rotate a heading (radians, CCW from east) by the same transform as rotate_point."""
+    if bearing_deg == 0:
+        return heading
+    return heading + math.radians(bearing_deg)
+
+
 @dataclass
 class Area:
     name: str
@@ -470,6 +496,7 @@ def render_map(
     heading: float | None = None,
     dock: Dock | None = None,
     planned_path: Sequence[Point] = (),
+    rotation_deg: float = 0.0,
 ) -> bytes:
     """Render the lawn(s), the mower's trail and its current position as a PNG.
 
@@ -480,14 +507,36 @@ def render_map(
     `active_area` names one of the areas, the others are dimmed. `heading` (radians,
     CCW from east) turns the mower's dot into an arrow; `dock` adds the charger.
     `planned_path` is drawn as a thin solid line (matching the GUI's own style), split
-    into runs at PLANNED_PATH_GAP_M.
+    into runs at PLANNED_PATH_GAP_M. `rotation_deg` matches the robot GUI's own "Map
+    Rotation" (Mapbox bearing) so the two can be lined up visually: 0 keeps north up.
     """
     if not areas and position is None:
         return render_placeholder(
             "Waiting for map data", width=width, height=round(width * 0.5), palette=palette
         )
 
+    if rotation_deg != 0:
+        areas = [
+            Area(
+                name=a.name,
+                boundary=[rotate_point(p, rotation_deg) for p in a.boundary],
+                obstacles=[[rotate_point(p, rotation_deg) for p in o] for o in a.obstacles],
+                index=a.index,
+            )
+            for a in areas
+        ]
+        if position is not None:
+            position = rotate_point(position, rotation_deg)
+        if heading is not None:
+            heading = rotate_heading(heading, rotation_deg)
+        if dock is not None:
+            dock = Dock(*rotate_point((dock.x, dock.y), rotation_deg), rotate_heading(dock.yaw, rotation_deg))
+        planned_path = [rotate_point(p, rotation_deg) for p in planned_path]
+
     samples = [_as_sample(item) for item in trail]
+    if rotation_deg != 0:
+        samples = [(*rotate_point((x, y), rotation_deg), blading) for x, y, blading in samples]
+
     every_point: list[Point] = [p for a in areas for p in a.boundary]
     every_point += [(x, y) for x, y, _ in samples]
     if position is not None:

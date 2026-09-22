@@ -75,6 +75,12 @@ mower too).
     matching the mower's own GUI map style — from `<prefix>/coverage_path` (needs a mower
     release that publishes it; mowglinext/mowglinext#726's sibling feature). Drawn under
     the trail, so what has already been mowed stands out on top of the plan.
+- A `number` entity ("Map rotation", -180°..180°, configuration category): rotates the whole
+  map image, matching the robot GUI's own "Map Rotation" (Mapbox bearing). That value is a
+  local display setting on the mower's GUI (`gui.map.display.bearing`), not on MQTT, so it
+  can't be read automatically — set the same number here if you want the two views to line
+  up. Default 0 keeps north up (unchanged from earlier versions); restored after a restart and
+  usable while the mower is offline, same as "Map style".
 - A `select` entity ("Map style", configuration category) with the map's colour style: `natural`
   (default; transparent, so it takes on the colour of the card behind it), `classic`, `light` or
   `night`. It is a dashboard preference: it works while the mower is offline and is restored

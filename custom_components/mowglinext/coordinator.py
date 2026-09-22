@@ -94,6 +94,11 @@ class MowglinextHub:
         # select entity (which restores it across restarts). Held here so the
         # camera can react to it like it reacts to any other update.
         self.map_style: str = DEFAULT_MAP_STYLE
+        # Degrees, matching the robot GUI's own "Map Rotation" (Mapbox bearing,
+        # gui.map.display.bearing): 0 = north up. Not read from the mower -- that
+        # value lives in the GUI's own local display settings, not on MQTT -- so this
+        # is a separate preference the operator dials in here to match it if they want.
+        self.map_rotation_deg: float = 0.0
 
     @property
     def available(self) -> bool:
@@ -229,6 +234,15 @@ class MowglinextHub:
             return
         self.map_style = style
         self._notify("map_style")
+
+    @callback
+    def async_set_map_rotation_deg(self, degrees: float) -> None:
+        """Change the map camera's display rotation; normalised to [-180, 180)."""
+        normalised = ((degrees + 180) % 360 + 360) % 360 - 180
+        if normalised == self.map_rotation_deg:
+            return
+        self.map_rotation_deg = normalised
+        self._notify("map_rotation_deg")
 
     async def async_publish_command(self, command: int) -> None:
         """Fire-and-forget: publish a HighLevelControl command code.

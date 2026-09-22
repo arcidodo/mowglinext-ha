@@ -418,3 +418,50 @@ async def test_an_explicit_size_request_overrides_the_default(
     image = await async_get_image(hass, CAMERA, width=300, height=300)
     width, height = _png(image.content).size
     assert width <= 300 and height <= 300
+
+
+NUMBER = "number.mowgli_map_rotation"
+
+
+async def test_map_rotation_defaults_and_rotates_the_camera(
+    hass: HomeAssistant, mqtt_mock
+) -> None:
+    await _setup_entry(hass, mqtt_mock)
+    await _make_available(hass)
+    await _fire(hass, "area_boundary", AREA_BOUNDARY)
+    await _fix(hass, 5.0, 30.0)  # off-centre and off-axis: a 90 degree turn must be visible
+
+    state = hass.states.get(NUMBER)
+    assert float(state.state) == 0.0
+
+    upright = await _image(hass)
+    await hass.services.async_call(
+        "number", "set_value", {"entity_id": NUMBER, "value": 90}, blocking=True
+    )
+    await hass.async_block_till_done()
+    assert float(hass.states.get(NUMBER).state) == 90.0
+    assert await _image(hass) != upright
+
+
+async def test_map_rotation_is_available_while_the_mower_is_offline(
+    hass: HomeAssistant, mqtt_mock
+) -> None:
+    await _setup_entry(hass, mqtt_mock)
+    await _fire(hass, "available", "offline")
+    assert hass.states.get(NUMBER).state == "0.0"
+
+
+async def test_map_rotation_is_restored_after_a_restart(hass: HomeAssistant, mqtt_mock) -> None:
+    mock_restore_cache(hass, [State(NUMBER, "45")])
+    await _setup_entry(hass, mqtt_mock)
+    await _make_available(hass)
+    assert float(hass.states.get(NUMBER).state) == 45.0
+
+
+async def test_map_rotation_is_normalised_into_range(hass: HomeAssistant, mqtt_mock) -> None:
+    # The number entity's own -180..180 slider bounds keep the UI in range; this
+    # covers the coordinator method directly, since it is also usable elsewhere.
+    entry = await _setup_entry(hass, mqtt_mock)
+    hub = hass.data[DOMAIN][entry.entry_id]
+    hub.async_set_map_rotation_deg(270)
+    assert hub.map_rotation_deg == -90.0

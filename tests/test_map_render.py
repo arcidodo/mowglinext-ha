@@ -26,6 +26,8 @@ from custom_components.mowglinext.map_render import (
     parse_coverage_path,
     parse_dock,
     parse_pose,
+    rotate_heading,
+    rotate_point,
     split_planned_path,
     render_map,
     render_placeholder,
@@ -462,3 +464,75 @@ def test_the_view_grows_to_include_the_planned_path() -> None:
     )
     assert _has_colour(image, palette.planned_path)
     assert _has_colour(image, palette.lawn_fill)
+
+
+# --- map rotation (matches the GUI's own "Map Rotation" / Mapbox bearing) --------------------
+
+
+def test_zero_rotation_is_a_no_op() -> None:
+    assert rotate_point((3.0, -4.0), 0.0) == (3.0, -4.0)
+    assert rotate_heading(1.23, 0.0) == 1.23
+
+
+def test_north_point_moves_to_the_left_at_bearing_90() -> None:
+    # bearing=90 means "facing east": east is at the top of the image, so north
+    # (90 degrees left of east) ends up on the left.
+    x, y = rotate_point((0.0, 1.0), 90.0)
+    assert x == pytest.approx(-1.0, abs=1e-9)
+    assert y == pytest.approx(0.0, abs=1e-9)
+
+
+def test_east_point_moves_to_the_top_at_bearing_90() -> None:
+    x, y = rotate_point((1.0, 0.0), 90.0)
+    assert x == pytest.approx(0.0, abs=1e-9)
+    assert y == pytest.approx(1.0, abs=1e-9)
+
+
+def test_rotation_preserves_distance() -> None:
+    p = rotate_point((3.0, 4.0), 37.0)
+    assert math.hypot(*p) == pytest.approx(5.0)
+
+
+def test_heading_rotates_the_same_way_as_position() -> None:
+    # A mower facing north (heading = pi/2, CCW from east) at bearing=90 should now
+    # face the same direction its rotated position vector points: west.
+    heading = rotate_heading(math.pi / 2, 90.0)
+    x, y = math.cos(heading), math.sin(heading)
+    assert (x, y) == pytest.approx((-1.0, 0.0), abs=1e-9)
+
+
+def test_rendered_map_rotates_with_the_scene() -> None:
+    # A mower due EAST of the lawn's centre renders on the RIGHT at bearing=0 (normal
+    # north-up). At bearing=90 (facing east, so east is "up"), that same physical
+    # point must render at the TOP instead -- the scene has visibly rotated.
+    area = Area(name="", boundary=SQUARE)  # centred on (5, 5)
+    east_of_centre = (20.0, 5.0)
+    upright = _open(render_map([area], east_of_centre))
+    rotated = _open(render_map([area], east_of_centre, rotation_deg=90.0))
+
+    def marker_centroid(image: Image.Image) -> tuple[float, float]:
+        xs, ys = [], []
+        for x in range(0, image.size[0], 2):
+            for y in range(0, image.size[1], 2):
+                if _close(image.getpixel((x, y)), MOWER_FILL):
+                    xs.append(x)
+                    ys.append(y)
+        assert xs, "marker not found"
+        return sum(xs) / len(xs), sum(ys) / len(ys)
+
+    ux, _uy = marker_centroid(upright)
+    _rx, ry = marker_centroid(rotated)
+    assert ux > upright.size[0] * 0.7  # right side
+    assert ry < rotated.size[1] * 0.3  # top
+
+
+def test_rotating_a_dock_rotates_its_heading_too() -> None:
+    # Sanity check: rotating a dock (position + heading together) actually changes
+    # the rendered image, rather than the heading rotation silently doing nothing.
+    plain = _open(render_map([Area(name="", boundary=SQUARE)], None, dock=Dock(5.0, 20.0, 0.0)))
+    rotated = _open(
+        render_map(
+            [Area(name="", boundary=SQUARE)], None, dock=Dock(5.0, 20.0, 0.0), rotation_deg=90.0
+        )
+    )
+    assert plain.tobytes() != rotated.tobytes()
