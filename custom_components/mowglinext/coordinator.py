@@ -108,6 +108,9 @@ class MowglinextHub:
         # value lives in the GUI's own local display settings, not on MQTT -- so this
         # is a separate preference the operator dials in here to match it if they want.
         self.map_rotation_deg: float = 0.0
+        # Show only the area being mowed, zoomed in (a display preference, like the
+        # style and rotation). Off by default: the whole garden, as before.
+        self.map_focus_active: bool = False
 
     @property
     def available(self) -> bool:
@@ -243,6 +246,14 @@ class MowglinextHub:
             return
         self.map_style = style
         self._notify("map_style")
+
+    @callback
+    def async_set_map_focus_active(self, focus: bool) -> None:
+        """Show only the active area on the map camera."""
+        if focus == self.map_focus_active:
+            return
+        self.map_focus_active = focus
+        self._notify("map_focus_active")
 
     @property
     def configuration_url(self) -> str:

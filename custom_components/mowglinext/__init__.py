@@ -23,6 +23,7 @@ PLATFORMS: list[Platform] = [
     Platform.SELECT,
     Platform.CAMERA,
     Platform.NUMBER,
+    Platform.SWITCH,
 ]
 
 

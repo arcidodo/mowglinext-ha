@@ -91,6 +91,12 @@ mower too).
   can't be read automatically — set the same number here if you want the two views to line
   up. Default 0 keeps north up (unchanged from earlier versions); restored after a restart and
   usable while the mower is offline, same as "Map style".
+- A `switch` entity ("Map: active zone only", configuration category): shows only the zone being
+  mowed, zoomed in, and leaves the other zones (and the trail, planned path, mower and dock outside
+  it) out. Useful for a large garden split into zones, where the whole-garden view turns the
+  planned mowing paths into a haze. Off by default (the whole garden, as before); it only takes
+  effect while the mower reports which zone it is working on, otherwise everything is shown.
+  Restored after a restart and usable while the mower is offline.
 - A `select` entity ("Map style", configuration category) with the map's colour style: `natural`
   (default; transparent, so it takes on the colour of the card behind it), `classic`, `light` or
   `night`. It is a dashboard preference: it works while the mower is offline and is restored

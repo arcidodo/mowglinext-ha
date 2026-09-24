@@ -99,6 +99,7 @@ def _render(
     max_height: int,
     coverage_path_payload: Any,
     rotation_deg: float,
+    focus_active: bool,
 ) -> bytes:
     return render_map(
         parse_areas(payload),
@@ -114,6 +115,7 @@ def _render(
         dock=parse_dock(payload),
         planned_path=parse_coverage_path(coverage_path_payload),
         rotation_deg=rotation_deg,
+        focus_active=focus_active,
     )
 
 
@@ -162,6 +164,7 @@ class MowglinextMapCamera(MowglinextEntity, Camera):
             self.hub.async_add_listener("rtk_status", self._handle_rtk_status),
             self.hub.async_add_listener("map_style", self._handle_map_style),
             self.hub.async_add_listener("map_rotation_deg", self._handle_map_rotation),
+            self.hub.async_add_listener("map_focus_active", self._handle_map_rotation),
         ]
         # The broker replays retained data on subscribe, so some may already be here.
         self._read_context()
@@ -327,6 +330,7 @@ class MowglinextMapCamera(MowglinextEntity, Camera):
                     *size,
                     self.hub.data.get("coverage_path"),
                     self.hub.map_rotation_deg,
+                    self.hub.map_focus_active,
                 )
             )
             self._rendered_version = version
@@ -339,6 +343,7 @@ class MowglinextMapCamera(MowglinextEntity, Camera):
             "trail_points": len(self._trail),
             "blade_on": self._blading,
             "map_style": self.hub.map_style,
+            "map_focus_active": self.hub.map_focus_active,
             "map_updated": datetime.now(UTC).isoformat(timespec="seconds"),
         }
         if self._position is not None:

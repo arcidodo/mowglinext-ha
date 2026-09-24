@@ -536,3 +536,58 @@ def test_rotating_a_dock_rotates_its_heading_too() -> None:
         )
     )
     assert plain.tobytes() != rotated.tobytes()
+
+
+# --- focus on the active zone ---------------------------------------------------------------
+
+FAR_SQUARE = [(100.0, 0.0), (110.0, 0.0), (110.0, 10.0), (100.0, 10.0)]
+
+
+def _count(image: Image.Image, colour: tuple[int, int, int]) -> int:
+    return sum(1 for p in image.getdata() if _close(p, colour))
+
+
+def test_focus_active_zooms_in_on_the_active_zone() -> None:
+    areas = [Area("a", SQUARE, index=0), Area("b", FAR_SQUARE, index=1)]
+    whole = _open(render_map(areas, None, active_area=1))
+    focused = _open(render_map(areas, None, active_area=1, focus_active=True))
+    # Same zone, but no longer sharing the picture with a zone 100 m away.
+    assert _count(focused, LAWN_FILL) > 4 * _count(whole, LAWN_FILL)
+
+
+def test_focus_active_leaves_the_other_zones_out() -> None:
+    areas = [Area("a", SQUARE, index=0), Area("b", FAR_SQUARE, index=1)]
+    focused = _open(render_map(areas, None, active_area=1, focus_active=True))
+    # The dimmed neighbour would show in _dimmed(LAWN_FILL); with focus there is none.
+    assert _count(focused, PALETTES["classic"].lawn_fill) > 0
+    assert focused.size[0] > 0
+    assert _count(focused, _dim(PALETTES["classic"])) == 0
+
+
+def test_focus_active_without_an_active_area_shows_everything() -> None:
+    areas = [Area("a", SQUARE, index=0), Area("b", FAR_SQUARE, index=1)]
+    assert (
+        render_map(areas, None, focus_active=True) == render_map(areas, None)
+    )
+
+
+def test_focus_active_hides_a_mower_in_another_zone() -> None:
+    areas = [Area("a", SQUARE, index=0), Area("b", FAR_SQUARE, index=1)]
+    in_transit = (5.0, 5.0)  # inside zone a, but zone b is the active one
+    shown = _open(render_map(areas, in_transit, active_area=1))
+    hidden = _open(render_map(areas, in_transit, active_area=1, focus_active=True))
+    assert _count(shown, MOWER_FILL) > 0
+    assert _count(hidden, MOWER_FILL) == 0
+
+
+def test_focus_active_does_not_join_the_trail_across_another_zone() -> None:
+    areas = [Area("a", SQUARE, index=0), Area("b", FAR_SQUARE, index=1)]
+    trail = [(x, 5.0, True) for x in range(102, 108)] + [(50.0, 5.0, True), (104.0, 5.0, True)]
+    image = _open(render_map(areas, None, trail, active_area=1, focus_active=True))
+    assert _count(image, PALETTES["classic"].mowed) > 0
+
+
+def _dim(palette):
+    from custom_components.mowglinext.map_render import _dimmed
+
+    return tuple(_dimmed(palette.lawn_fill, palette)[:3])

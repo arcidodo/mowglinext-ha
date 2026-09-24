@@ -465,3 +465,40 @@ async def test_map_rotation_is_normalised_into_range(hass: HomeAssistant, mqtt_m
     hub = hass.data[DOMAIN][entry.entry_id]
     hub.async_set_map_rotation_deg(270)
     assert hub.map_rotation_deg == -90.0
+
+
+FOCUS = "switch.mowgli_map_active_zone_only"
+
+
+async def test_focus_switch_defaults_off_and_changes_the_image(
+    hass: HomeAssistant, mqtt_mock
+) -> None:
+    await _setup_entry(hass, mqtt_mock)
+    await _make_available(hass)
+    two_areas = {
+        "datum_lat": 52.0,
+        "datum_lon": 5.0,
+        "areas": [
+            {"index": 0, "name": "a", "boundary": [[0, 0], [10, 0], [10, 10], [0, 10]]},
+            {"index": 1, "name": "b", "boundary": [[100, 0], [110, 0], [110, 10], [100, 10]]},
+        ],
+    }
+    await _fire(hass, "area_boundary", two_areas)
+    await _fire(hass, "high_level_status", {"state_name": "MOWING", "current_area": 1})
+
+    assert hass.states.get(FOCUS).state == "off"
+    whole = await _image(hass)
+    await hass.services.async_call("switch", "turn_on", {"entity_id": FOCUS}, blocking=True)
+    await hass.async_block_till_done()
+    assert hass.states.get(FOCUS).state == "on"
+    assert hass.states.get("camera.mowgli_map").attributes["map_focus_active"] is True
+    assert await _image(hass) != whole
+
+
+async def test_focus_switch_is_restored_and_available_offline(
+    hass: HomeAssistant, mqtt_mock
+) -> None:
+    mock_restore_cache(hass, [State(FOCUS, "on")])
+    await _setup_entry(hass, mqtt_mock)
+    await _fire(hass, "available", "offline")
+    assert hass.states.get(FOCUS).state == "on"

@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import math
 from collections import deque
-from collections.abc import Iterator, Sequence
+from collections.abc import Callable, Iterator, Sequence
 from dataclasses import dataclass, field
 from io import BytesIO
 from typing import Any
@@ -48,6 +48,7 @@ RTK_FLOAT_COLOUR: RGB = (255, 152, 0)
 RTK_NONE_COLOUR: RGB = (244, 67, 54)
 
 _SUPERSAMPLE = 2
+_FOCUS_PAD_M = 1.0  # how far around the focused area its trail/path/mower still count
 _SCALE_BAR_STEPS_M = (1, 2, 5, 10, 20, 50, 100, 200)
 _DIM_FACTOR = 0.55  # how far an inactive area is mixed towards the background
 _DIM_ALPHA = 90  # ... or how transparent it becomes when there is no background
@@ -389,6 +390,24 @@ def _as_sample(item: Sequence[float | bool]) -> TrailSample:
     return float(item[0]), float(item[1]), blading
 
 
+def _clip_run(run: list[Point], inside: Callable[[Point], bool] | None) -> list[list[Point]]:
+    """Split a polyline into the stretches that lie inside, so leaving and re-entering
+    the focused area is not bridged by a straight line."""
+    if inside is None:
+        return [run]
+    pieces: list[list[Point]] = []
+    current: list[Point] = []
+    for p in run:
+        if inside(p):
+            current.append(p)
+        elif current:
+            pieces.append(current)
+            current = []
+    if current:
+        pieces.append(current)
+    return pieces
+
+
 def _runs(trail: Sequence[TrailSample]) -> Iterator[tuple[bool, list[Point]]]:
     """Consecutive stretches of the trail with the same blade state.
 
@@ -497,6 +516,7 @@ def render_map(
     dock: Dock | None = None,
     planned_path: Sequence[Point] = (),
     rotation_deg: float = 0.0,
+    focus_active: bool = False,
 ) -> bytes:
     """Render the lawn(s), the mower's trail and its current position as a PNG.
 
@@ -509,6 +529,9 @@ def render_map(
     `planned_path` is drawn as a thin solid line (matching the GUI's own style), split
     into runs at PLANNED_PATH_GAP_M. `rotation_deg` matches the robot GUI's own "Map
     Rotation" (Mapbox bearing) so the two can be lined up visually: 0 keeps north up.
+    `focus_active` shows only the area named by `active_area` (when there is one) and
+    zooms to it: the trail, planned path, mower and dock outside it are left out, so a
+    large garden split into zones stays readable.
     """
     if not areas and position is None:
         return render_placeholder(
@@ -537,13 +560,32 @@ def render_map(
     if rotation_deg != 0:
         samples = [(*rotate_point((x, y), rotation_deg), blading) for x, y, blading in samples]
 
+    inside: Callable[[Point], bool] | None = None
+    if focus_active and active_area is not None and any(a.index == active_area for a in areas):
+        areas = [a for a in areas if a.index == active_area]
+        bxs = [p[0] for p in areas[0].boundary]
+        bys = [p[1] for p in areas[0].boundary]
+        pad = _FOCUS_PAD_M
+        lo_x, hi_x, lo_y, hi_y = min(bxs) - pad, max(bxs) + pad, min(bys) - pad, max(bys) + pad
+
+        def inside(p: Point) -> bool:  # noqa: F811 - the bbox of the focused area, padded
+            return lo_x <= p[0] <= hi_x and lo_y <= p[1] <= hi_y
+
+        if position is not None and not inside(position):
+            position, heading = None, None  # in transit between zones: not in this view
+        if dock is not None and not inside((dock.x, dock.y)):
+            dock = None
+
+    def kept(p: Point) -> bool:
+        return inside is None or inside(p)
+
     every_point: list[Point] = [p for a in areas for p in a.boundary]
-    every_point += [(x, y) for x, y, _ in samples]
+    every_point += [(x, y) for x, y, _ in samples if kept((x, y))]
     if position is not None:
         every_point.append(position)
     if dock is not None:
         every_point.append((dock.x, dock.y))
-    every_point += list(planned_path)
+    every_point += [p for p in planned_path if kept(p)]
 
     xs = [p[0] for p in every_point]
     ys = [p[1] for p in every_point]
@@ -601,11 +643,17 @@ def render_map(
     if dock is not None:
         _draw_dock(draw, px, dock, scale, ss, palette)
 
-    for run in split_planned_path(planned_path):
-        if len(run) >= 2:
-            _draw_planned_path_line(draw, [px(p) for p in run], palette.planned_path, ss)
+    for whole_run in split_planned_path(planned_path):
+        for run in _clip_run(whole_run, inside):
+            if len(run) >= 2:
+                _draw_planned_path_line(draw, [px(p) for p in run], palette.planned_path, ss)
 
-    runs = list(_runs(samples))
+    runs = [
+        (blading, piece)
+        for blading, whole_run in _runs(samples)
+        for piece in _clip_run(whole_run, inside)
+        if len(piece) >= 2
+    ]
     stripe_px = max(3.0, tool_width_m * scale) * ss
     for blading, run in runs:
         if not blading:
