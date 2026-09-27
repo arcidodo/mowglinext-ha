@@ -122,6 +122,13 @@ mower too).
   **A due, enabled schedule starts the mower unattended**, exactly like `lawn_mower.start_mowing`;
   needs a mower release that publishes `<prefix>/schedules` (older mower software: the sensor
   reads 0 schedules and the services silently do nothing).
+- A `calendar` entity ("Mowing schedule") showing the same schedules as actual calendar events —
+  open it from the Calendar dashboard, or add it to any calendar card, to see when the mower is
+  going to run without reading a sensor attribute. Each enabled schedule is expanded into one event
+  per matching weekday within whatever range the calendar view asks for; the block shown (1 hour)
+  is only for visibility — the schedule itself has no end time, and the mow actually ends whenever
+  the area finishes. The event's title is the area's name (from `<prefix>/areas`) when known, else
+  "Area <index>". The entity's own state is the next upcoming occurrence.
 - Availability tracking via `<prefix>/available` (the broker's own Last Will and Testament) **and**
   a freshness watchdog on `<prefix>/high_level_status`: that topic is republished at a steady ~1 Hz
   by the mower's behavior tree, so if no update arrives for 10 seconds the integration marks itself
