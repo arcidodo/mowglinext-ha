@@ -1,0 +1,84 @@
+set_schedule:
+  name: Set schedule
+  description: >-
+    Create a mowing schedule (omit id, or use one that doesn't exist yet) or
+    update an existing one (an id that does) -- the mower's own scheduler
+    runs it exactly like one created in its own Settings page.
+  target:
+    entity:
+      integration: mowglinext
+      domain: lawn_mower
+  fields:
+    area:
+      name: Area
+      description: >-
+        The recorded area's index, from the "index" shown for it on the mower
+        (the same index space docs/MQTT_CONTROL.md's <prefix>/areas uses).
+      required: true
+      example: 0
+      selector:
+        number:
+          min: 0
+          mode: box
+    time:
+      name: Time
+      description: Time of day the schedule starts.
+      required: true
+      example: "06:00"
+      selector:
+        time:
+    days_of_week:
+      name: Days of week
+      description: Which days this schedule runs on.
+      required: true
+      example: [1, 2, 3, 4, 5]
+      selector:
+        select:
+          multiple: true
+          options:
+            - label: "Sunday"
+              value: "0"
+            - label: "Monday"
+              value: "1"
+            - label: "Tuesday"
+              value: "2"
+            - label: "Wednesday"
+              value: "3"
+            - label: "Thursday"
+              value: "4"
+            - label: "Friday"
+              value: "5"
+            - label: "Saturday"
+              value: "6"
+    enabled:
+      name: Enabled
+      description: Whether the schedule is active.
+      required: false
+      default: true
+      selector:
+        boolean:
+    id:
+      name: Schedule ID
+      description: >-
+        Leave empty to create a new schedule. Set to an existing schedule's
+        id (see the "Schedules" sensor's attributes) to update it instead.
+      required: false
+      example: "1758901234567890000"
+      selector:
+        text:
+
+delete_schedule:
+  name: Delete schedule
+  description: Delete a mowing schedule.
+  target:
+    entity:
+      integration: mowglinext
+      domain: lawn_mower
+  fields:
+    id:
+      name: Schedule ID
+      description: The schedule's id, from the "Schedules" sensor's attributes.
+      required: true
+      example: "1758901234567890000"
+      selector:
+        text:

@@ -26,6 +26,7 @@ async def async_setup_entry(
             MowglinextGpsQualitySensor(hub),
             MowglinextRtkStatusSensor(hub),
             MowglinextStateSensor(hub),
+            MowglinextSchedulesSensor(hub),
         ]
     )
 
@@ -145,3 +146,35 @@ class MowglinextStateSensor(_HighLevelStatusSensor):
     def extra_state_attributes(self) -> dict:
         status = self.hub.data.get("high_level_status") or {}
         return {"sub_state_name": status.get("sub_state_name")}
+
+
+class MowglinextSchedulesSensor(MowglinextEntity, SensorEntity):
+    """The mower's mowing schedules (<prefix>/schedules) -- the GUI's own
+    database, mirrored over MQTT (docs/MQTT_CONTROL.md), not a ROS2 value.
+    State is how many are enabled; the full list (with id, area, time,
+    daysOfWeek, enabled, lastRun, lastSkipReason) is the "schedules"
+    attribute, since HA has no native "list of items" entity -- read it in a
+    template, or use the mowglinext.set_schedule/delete_schedule services
+    (lawn_mower.py) to add, edit or remove one; a write here is mirrored back
+    onto this same topic by the mower, whether it came from MQTT or the
+    mower's own Settings page.
+    """
+
+    _attr_name = "Schedules"
+    _attr_icon = "mdi:calendar-clock"
+    _topic_key = "schedules"
+
+    def __init__(self, hub: MowglinextHub) -> None:
+        super().__init__(hub)
+        self._attr_unique_id = f"{hub.device_id}_schedules"
+
+    def _schedules(self) -> list[dict]:
+        return (self.hub.data.get("schedules") or {}).get("schedules") or []
+
+    @property
+    def native_value(self) -> int:
+        return sum(1 for s in self._schedules() if s.get("enabled"))
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        return {"schedules": self._schedules(), "total": len(self._schedules())}

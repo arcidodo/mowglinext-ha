@@ -8,6 +8,7 @@ survive as extra_state_attributes and on the diagnostic "State" sensor
 """
 from __future__ import annotations
 
+import voluptuous as vol
 from homeassistant.components.lawn_mower import (
     LawnMowerActivity,
     LawnMowerEntity,
@@ -15,7 +16,8 @@ from homeassistant.components.lawn_mower import (
 )
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers import config_validation as cv
+from homeassistant.helpers.entity_platform import AddEntitiesCallback, async_get_current_platform
 
 from .const import (
     COMMAND_HOME,
@@ -30,12 +32,39 @@ from .const import (
 from .coordinator import MowglinextHub
 from .entity import MowglinextEntity
 
+_DAY_OF_WEEK = vol.All(vol.Coerce(int), vol.Range(min=0, max=6))
+_AREA_INDEX = vol.All(vol.Coerce(int), vol.Range(min=0))
+
+SERVICE_SET_SCHEDULE = "set_schedule"
+SERVICE_DELETE_SCHEDULE = "delete_schedule"
+
 
 async def async_setup_entry(
     hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback
 ) -> None:
     hub: MowglinextHub = hass.data[DOMAIN][entry.entry_id]
     async_add_entities([MowglinextLawnMower(hub)])
+
+    # Entity services (not hass.services.async_register): HA resolves the
+    # target entity from the service call for us, same as the built-in
+    # start_mowing/pause/dock above -- no manual device_id/entry lookup needed.
+    platform = async_get_current_platform()
+    platform.async_register_entity_service(
+        SERVICE_SET_SCHEDULE,
+        {
+            vol.Required("area"): _AREA_INDEX,
+            vol.Required("time"): cv.time,
+            vol.Required("days_of_week"): vol.All(cv.ensure_list, [_DAY_OF_WEEK]),
+            vol.Optional("enabled", default=True): cv.boolean,
+            vol.Optional("id"): cv.string,
+        },
+        "async_set_schedule",
+    )
+    platform.async_register_entity_service(
+        SERVICE_DELETE_SCHEDULE,
+        {vol.Required("id"): cv.string},
+        "async_delete_schedule",
+    )
 
 
 class MowglinextLawnMower(MowglinextEntity, LawnMowerEntity):
@@ -99,3 +128,26 @@ class MowglinextLawnMower(MowglinextEntity, LawnMowerEntity):
 
     async def async_dock(self) -> None:
         await self.hub.async_publish_command(COMMAND_HOME)
+
+    async def async_set_schedule(
+        self,
+        area: int,
+        time: object,
+        days_of_week: list[int],
+        enabled: bool = True,
+        id: str | None = None,  # noqa: A002 - matches the service field name
+    ) -> None:
+        """mowglinext.set_schedule: create (no id, or an unknown one) or
+        update (an existing id) a mowing schedule -- see the "Schedules"
+        sensor for the current list and the ids it assigns on create."""
+        await self.hub.async_set_schedule(
+            area=area,
+            time=time.strftime("%H:%M"),
+            days_of_week=days_of_week,
+            enabled=enabled,
+            schedule_id=id,
+        )
+
+    async def async_delete_schedule(self, id: str) -> None:  # noqa: A002
+        """mowglinext.delete_schedule."""
+        await self.hub.async_delete_schedule(id)

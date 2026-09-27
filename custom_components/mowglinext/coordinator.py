@@ -44,6 +44,7 @@ JSON_TOPICS: tuple[str, ...] = (
     "pose",
     "coverage_path",
     "host",
+    "schedules",
     "rtk_status",
     "areas",
     "area_boundary",
@@ -295,3 +296,32 @@ class MowglinextHub:
         silently reassign every index, not just ones after the change.
         """
         await mqtt.async_publish(self.hass, self._topic("start_area"), str(int(index)))
+
+    async def async_set_schedule(
+        self,
+        area: int,
+        time: str,
+        days_of_week: list[int],
+        enabled: bool,
+        schedule_id: str | None = None,
+    ) -> None:
+        """Fire-and-forget: create a schedule (schedule_id absent/unknown) or
+        update one (an existing schedule_id) -- see docs/MQTT_CONTROL.md's
+        <prefix>/schedules/set. Same fire-and-forget contract as the other
+        commands: watch <prefix>/schedules (the "schedules" sensor) to confirm
+        it took effect, and to read back the id a create was assigned.
+        """
+        payload: dict[str, Any] = {
+            "area": area,
+            "time": time,
+            "daysOfWeek": days_of_week,
+            "enabled": enabled,
+        }
+        if schedule_id:
+            payload["id"] = schedule_id
+        await mqtt.async_publish(self.hass, self._topic("schedules/set"), json.dumps(payload))
+
+    async def async_delete_schedule(self, schedule_id: str) -> None:
+        """Fire-and-forget: delete a schedule by id (see the "schedules" sensor
+        for the current list of ids) -- <prefix>/schedules/delete."""
+        await mqtt.async_publish(self.hass, self._topic("schedules/delete"), schedule_id)

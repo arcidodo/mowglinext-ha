@@ -109,6 +109,19 @@ mower too).
   so the button always re-resolves the area's index from the freshest list at the moment it's
   pressed — never a value cached from when it was picked — and refuses (with a visible error) rather
   than risk starting the wrong area if the name has since disappeared from the list.
+- A "Schedules" sensor and two services, `mowglinext.set_schedule` / `mowglinext.delete_schedule`,
+  for the mower's own mowing schedules — these live only in the mower's GUI, with no ROS2
+  representation at all, so the mower's own GUI backend (not `mqtt_bridge_node`) publishes and
+  accepts them on the same broker. The sensor's state is how many schedules are enabled, and its
+  `schedules` attribute is the full list (`id`, `area`, `time`, `daysOfWeek`, `enabled`, and
+  `lastRun`/`lastSkipReason` if the scheduler has skipped a due run for wet soil) — read it in a
+  template or automation. `set_schedule` creates a schedule (leave `id` empty) or updates one (an
+  existing `id`, found in the sensor's attributes); `delete_schedule` removes one by `id`. A
+  schedule created or edited this way is executed by the mower's own scheduler exactly like one
+  created in its GUI, and vice versa — one set of schedules, editable from either place.
+  **A due, enabled schedule starts the mower unattended**, exactly like `lawn_mower.start_mowing`;
+  needs a mower release that publishes `<prefix>/schedules` (older mower software: the sensor
+  reads 0 schedules and the services silently do nothing).
 - Availability tracking via `<prefix>/available` (the broker's own Last Will and Testament) **and**
   a freshness watchdog on `<prefix>/high_level_status`: that topic is republished at a steady ~1 Hz
   by the mower's behavior tree, so if no update arrives for 10 seconds the integration marks itself
