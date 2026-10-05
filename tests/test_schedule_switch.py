@@ -18,7 +18,8 @@ from custom_components.mowglinext.const import CONF_TOPIC_PREFIX, DOMAIN
 
 _WEEKDAYS = {
     "id": "1790146100949054310",
-    "area": 0,
+    "areaId": 7,
+    "areaName": "Achter",
     "time": "17:30",
     "daysOfWeek": [1, 2, 3, 4, 5, 0, 6],
     "enabled": True,
@@ -26,7 +27,7 @@ _WEEKDAYS = {
 }
 _SATURDAY = {
     "id": "1790146100949054311",
-    "area": 1,
+    "areaId": 0,
     "time": "09:00",
     "daysOfWeek": [6],
     "enabled": False,
@@ -77,7 +78,7 @@ async def test_one_switch_per_schedule_reflecting_enabled(
     await _setup_entry(hass, mqtt_mock)
     await _make_available(hass)
     async_fire_mqtt_message(
-        hass, "mowgli/areas", json.dumps([{"index": 0, "name": "Achter"}])
+        hass, "mowgli/areas", json.dumps([{"index": 2, "name": "Achter", "id": 7}])
     )
     await _publish_schedules(hass, _WEEKDAYS, _SATURDAY)
 
@@ -87,12 +88,10 @@ async def test_one_switch_per_schedule_reflecting_enabled(
     ]
     first = hass.states.get("switch.mowgli_schedule_1")
     assert first.state == "on"
-    # Named by time only: the mower ignores a schedule's "area" and mows every area,
-    # so even a known area name ("Achter" for area 0) must not appear.
-    assert first.name == "Mowgli Schedule 17:30"
+    assert first.name == "Mowgli Schedule Achter 17:30"
     second = hass.states.get("switch.mowgli_schedule_2")
     assert second.state == "off"
-    assert second.name == "Mowgli Schedule 09:00"
+    assert second.name == "Mowgli Schedule All areas 09:00"  # areaId 0
 
 
 async def test_attributes_feed_the_lawn_mower_card_schedules_panel(
@@ -101,21 +100,42 @@ async def test_attributes_feed_the_lawn_mower_card_schedules_panel(
     await _setup_entry(hass, mqtt_mock)
     await _make_available(hass)
     async_fire_mqtt_message(
-        hass, "mowgli/areas", json.dumps([{"index": 0, "name": "Achter"}])
+        hass, "mowgli/areas", json.dumps([{"index": 2, "name": "Achter", "id": 7}])
     )
     await _publish_schedules(hass, _WEEKDAYS, _SATURDAY)
 
     attrs = hass.states.get("switch.mowgli_schedule_1").attributes
     assert attrs["schedule_control"] is True
-    assert attrs["name"] == "Schedule 17:30"
-    assert "map_label" not in attrs
+    assert attrs["name"] == "Achter 17:30"
+    assert attrs["map_label"] == "Achter"
+    assert attrs["area_id"] == 7
     assert attrs["weekdays"] == ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
     assert attrs["start_times"] == ["17:30"]
     assert attrs["schedule_id"] == "1790146100949054310"
 
     attrs = hass.states.get("switch.mowgli_schedule_2").attributes
     assert attrs["weekdays"] == ["Sat"]
+    assert attrs["map_label"] == "All areas"
     assert attrs["last_run"] == "2026-09-26T09:00:00Z"
+
+
+async def test_name_follows_an_area_rename_and_survives_its_removal(
+    hass: HomeAssistant, mqtt_mock
+) -> None:
+    await _setup_entry(hass, mqtt_mock)
+    await _make_available(hass)
+    await _publish_schedules(hass, _WEEKDAYS)
+
+    async_fire_mqtt_message(
+        hass, "mowgli/areas", json.dumps([{"index": 0, "name": "Achtertuin", "id": 7}])
+    )
+    await hass.async_block_till_done()
+    assert hass.states.get("switch.mowgli_schedule_1").name == "Mowgli Schedule Achtertuin 17:30"
+
+    # Area gone: fall back to the schedule's own areaName snapshot.
+    async_fire_mqtt_message(hass, "mowgli/areas", json.dumps([]))
+    await hass.async_block_till_done()
+    assert hass.states.get("switch.mowgli_schedule_1").name == "Mowgli Schedule Achter 17:30"
 
 
 @pytest.mark.parametrize(("service", "enabled"), [("turn_off", False), ("turn_on", True)])
@@ -132,13 +152,39 @@ async def test_toggling_publishes_the_full_schedule_with_enabled_changed(
 
     published = _published(mqtt_mock, "mowgli/schedules/set")
     assert published, mqtt_mock.async_publish.mock_calls
+    # The whole record goes back -- areaId/areaName included, or the update would
+    # silently turn a per-area schedule into an all-areas one -- minus the fields
+    # the mower's scheduler owns.
     assert json.loads(published[-1].args[1]) == {
         "id": "1790146100949054310",
-        "area": 0,
+        "areaId": 7,
+        "areaName": "Achter",
         "time": "17:30",
         "daysOfWeek": [1, 2, 3, 4, 5, 0, 6],
         "enabled": enabled,
     }
+
+
+async def test_enabling_an_overlapping_schedule_is_refused(
+    hass: HomeAssistant, mqtt_mock
+) -> None:
+    await _setup_entry(hass, mqtt_mock)
+    await _make_available(hass)
+    # Saturday 17:00 is 30 min from the enabled every-day 17:30 schedule.
+    clash = {**_SATURDAY, "time": "17:00"}
+    await _publish_schedules(hass, _WEEKDAYS, clash)
+
+    with pytest.raises(HomeAssistantError, match="17:30"):
+        await hass.services.async_call(
+            "switch", "turn_on", {"entity_id": "switch.mowgli_schedule_2"}, blocking=True
+        )
+    assert not _published(mqtt_mock, "mowgli/schedules/set")
+
+    # Turning one OFF is always allowed.
+    await hass.services.async_call(
+        "switch", "turn_off", {"entity_id": "switch.mowgli_schedule_1"}, blocking=True
+    )
+    assert _published(mqtt_mock, "mowgli/schedules/set")
 
 
 async def test_state_follows_the_mower_not_the_command(

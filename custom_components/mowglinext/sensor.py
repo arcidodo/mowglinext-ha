@@ -151,7 +151,7 @@ class MowglinextStateSensor(_HighLevelStatusSensor):
 class MowglinextSchedulesSensor(MowglinextEntity, SensorEntity):
     """The mower's mowing schedules (<prefix>/schedules) -- the GUI's own
     database, mirrored over MQTT (docs/MQTT_CONTROL.md), not a ROS2 value.
-    State is how many are enabled; the full list (with id, area, time,
+    State is how many are enabled; the full list (with id, areaId, areaName, time,
     daysOfWeek, enabled, lastRun, lastSkipReason) is the "schedules"
     attribute, since HA has no native "list of items" entity -- read it in a
     template, or use the mowglinext.set_schedule/delete_schedule services

@@ -15,6 +15,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.util import dt as dt_util
 
+from . import schedules
 from .const import DOMAIN
 from .coordinator import MowglinextHub
 from .entity import MowglinextEntity
@@ -23,11 +24,6 @@ from .entity import MowglinextEntity
 # not on a clock) -- this is purely a nominal block so the event is visible on
 # a calendar grid, not a claim about how long mowing actually takes.
 _EVENT_DURATION = timedelta(hours=1)
-
-# Not the schedule's "area": the mower's scheduler ignores it and always starts a
-# full mow of every area (a plain COMMAND_START -- its own GUI labels each schedule
-# "applies to all areas"), so an area name here would claim something that won't happen.
-_EVENT_SUMMARY = "Mowing (all areas)"
 
 # How far ahead `event` (the entity's own state: "the next occurrence") looks
 # before giving up and reporting none scheduled.
@@ -79,6 +75,11 @@ class MowglinextSchedulesCalendar(MowglinextEntity, CalendarEntity):
         for sched in self._schedules():
             if not sched.get("enabled"):
                 continue
+            # The area's name, or "Mowing (all areas)" for a schedule that mows them all.
+            summary = (
+                schedules.area_label(sched, self.hub.data.get("areas") or [])
+                or "Mowing (all areas)"
+            )
             time_of_day = _parse_time(sched.get("time"))
             days = _parse_days(sched.get("daysOfWeek"))
             if time_of_day is None or not days:
@@ -97,7 +98,7 @@ class MowglinextSchedulesCalendar(MowglinextEntity, CalendarEntity):
                             CalendarEvent(
                                 start=event_start,
                                 end=event_end,
-                                summary=_EVENT_SUMMARY,
+                                summary=summary,
                                 description=f"MowgliNext schedule {sched.get('id')}",
                                 uid=f"{sched.get('id')}-{day.isoformat()}",
                             )

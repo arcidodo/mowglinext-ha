@@ -22,6 +22,7 @@ from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.restore_state import RestoreEntity
 
+from . import schedules
 from .const import DOMAIN
 from .coordinator import MowglinextHub
 from .entity import MowglinextEntity
@@ -156,20 +157,31 @@ class MowglinextScheduleSwitch(MowglinextEntity, SwitchEntity):
         self.schedule_id = schedule_id
         self._attr_unique_id = f"{hub.device_id}_schedule_{schedule_id}"
 
+    async def async_added_to_hass(self) -> None:
+        await super().async_added_to_hass()
+        # The name shows the area's CURRENT name, so a rename re-renders it too.
+        self.async_on_remove(self.hub.async_add_listener("areas", self.async_write_ha_state))
+
     def _schedule(self) -> dict | None:
-        for sched in (self.hub.data.get("schedules") or {}).get("schedules") or []:
+        for sched in self.hub.schedules:
             if str(sched.get("id")) == self.schedule_id:
                 return sched
         return None
 
+    def _area_label(self, sched: dict) -> str:
+        return (
+            schedules.area_label(sched, self.hub.data.get("areas") or [])
+            or schedules.ALL_AREAS_LABEL
+        )
+
     @property
     def name(self) -> str:
-        # Named by time only, never by the schedule's "area": the mower's scheduler
-        # ignores that field and always mows every area (a plain COMMAND_START; its own
-        # GUI labels each schedule "applies to all areas").
         sched = self._schedule()
-        time = sched.get("time") if sched else None
-        return f"Schedule {time}" if time else "Schedule"
+        if sched is None:
+            return "Schedule"
+        return " ".join(
+            part for part in ("Schedule", self._area_label(sched), sched.get("time")) if part
+        )
 
     @property
     def available(self) -> bool:
@@ -190,13 +202,16 @@ class MowglinextScheduleSwitch(MowglinextEntity, SwitchEntity):
             {d for d in days if isinstance(d, int) and not isinstance(d, bool) and 0 <= d <= 6},
             key=lambda d: (d + 6) % 7,
         )
+        label = self._area_label(sched)
         attributes: dict[str, Any] = {
             # Read by the lawn-mower-card to list this switch in its Schedules panel.
             "schedule_control": True,
-            "name": self.name,
+            "name": " ".join(part for part in (label, sched.get("time")) if part),
+            "map_label": label,
             "weekdays": [_WEEKDAY_NAMES[d] for d in valid_days],
             "start_times": [sched["time"]] if sched.get("time") else [],
             "schedule_id": self.schedule_id,
+            "area_id": schedules.area_id(sched),
             "time": sched.get("time"),
             "days_of_week": days,
         }
@@ -219,12 +234,9 @@ class MowglinextScheduleSwitch(MowglinextEntity, SwitchEntity):
         sched = self._schedule()
         if sched is None:
             raise HomeAssistantError(f"Schedule {self.schedule_id} no longer exists")
-        # schedules/set replaces the whole record (bar the scheduler's own lastRun etc.),
-        # so send the schedule exactly as the mower last published it, only toggled.
-        await self.hub.async_set_schedule(
-            area=sched.get("area"),
-            time=sched.get("time"),
-            days_of_week=sched.get("daysOfWeek"),
-            enabled=enabled,
-            schedule_id=self.schedule_id,
-        )
+        payload = schedules.toggled(sched, enabled)
+        # The mower drops an overlapping enable with only a log line; refuse it here
+        # with the reason instead of a switch that silently stays off.
+        if other := schedules.find_overlap(payload, self.hub.schedules):
+            raise HomeAssistantError(schedules.overlap_message(other))
+        await self.hub.async_publish_schedule(payload)

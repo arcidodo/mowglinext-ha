@@ -3,8 +3,10 @@ services (lawn_mower.py's entity services, coordinator.py's publish helpers).
 """
 import json
 
+import pytest
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import ServiceValidationError
 from pytest_homeassistant_custom_component.common import (
     MockConfigEntry,
     async_fire_mqtt_message,
@@ -104,8 +106,10 @@ async def test_schedules_sensor_is_available_while_the_mower_is_offline(
 # mowglinext.set_schedule
 # ===========================================================================
 
+_AREAS = [{"index": 0, "name": "Voor", "id": 11}, {"index": 2, "name": "Achter", "id": 7}]
 
-async def test_set_schedule_publishes_the_expected_payload(
+
+async def test_set_schedule_without_an_area_mows_all_areas(
     hass: HomeAssistant, mqtt_mock
 ) -> None:
     await _setup_entry(hass, mqtt_mock)
@@ -116,7 +120,6 @@ async def test_set_schedule_publishes_the_expected_payload(
         "set_schedule",
         {
             "entity_id": ENTITY,
-            "area": 0,
             "time": "06:00:00",
             "days_of_week": [1, 2, 3, 4, 5],
             "enabled": True,
@@ -128,12 +131,78 @@ async def test_set_schedule_publishes_the_expected_payload(
     assert published, mqtt_mock.async_publish.mock_calls
     payload = json.loads(published[-1].args[1])
     assert payload == {
-        "area": 0,
+        "areaId": 0,
         "time": "06:00",
         "daysOfWeek": [1, 2, 3, 4, 5],
         "enabled": True,
     }
     assert "id" not in payload, "a create must not send an id field at all"
+
+
+async def test_set_schedule_resolves_an_area_name_to_its_stable_id(
+    hass: HomeAssistant, mqtt_mock
+) -> None:
+    await _setup_entry(hass, mqtt_mock)
+    await _make_available(hass)
+    async_fire_mqtt_message(hass, "mowgli/areas", json.dumps(_AREAS))
+    await hass.async_block_till_done()
+
+    await hass.services.async_call(
+        DOMAIN,
+        "set_schedule",
+        {"entity_id": ENTITY, "area": "Achter", "time": "17:30:00", "days_of_week": [6]},
+        blocking=True,
+    )
+
+    payload = json.loads(_published(mqtt_mock, "mowgli/schedules/set")[-1].args[1])
+    # The stable id (7), not the positional index (2).
+    assert payload["areaId"] == 7
+    assert payload["areaName"] == "Achter"
+
+
+async def test_set_schedule_rejects_an_unknown_area(hass: HomeAssistant, mqtt_mock) -> None:
+    await _setup_entry(hass, mqtt_mock)
+    await _make_available(hass)
+    async_fire_mqtt_message(hass, "mowgli/areas", json.dumps(_AREAS))
+    await hass.async_block_till_done()
+
+    with pytest.raises(ServiceValidationError, match="Unknown area 'Zij'"):
+        await hass.services.async_call(
+            DOMAIN,
+            "set_schedule",
+            {"entity_id": ENTITY, "area": "Zij", "time": "06:00:00", "days_of_week": [1]},
+            blocking=True,
+        )
+    assert not _published(mqtt_mock, "mowgli/schedules/set")
+
+
+async def test_set_schedule_rejects_an_overlap_like_the_mower_would(
+    hass: HomeAssistant, mqtt_mock
+) -> None:
+    await _setup_entry(hass, mqtt_mock)
+    await _make_available(hass)
+    async_fire_mqtt_message(hass, "mowgli/schedules", json.dumps(_ONE_SCHEDULE))
+    await hass.async_block_till_done()
+
+    # Schedule "1" is enabled Mon-Fri 06:00; Monday 06:30 is 30 min from it.
+    with pytest.raises(ServiceValidationError, match="06:00"):
+        await hass.services.async_call(
+            DOMAIN,
+            "set_schedule",
+            {"entity_id": ENTITY, "time": "06:30:00", "days_of_week": [1]},
+            blocking=True,
+        )
+    assert not _published(mqtt_mock, "mowgli/schedules/set")
+
+    # Disabled, or updating schedule "1" itself, is never an overlap.
+    for extra in ({"enabled": False}, {"id": "1"}):
+        await hass.services.async_call(
+            DOMAIN,
+            "set_schedule",
+            {"entity_id": ENTITY, "time": "06:30:00", "days_of_week": [1], **extra},
+            blocking=True,
+        )
+    assert len(_published(mqtt_mock, "mowgli/schedules/set")) == 2
 
 
 async def test_set_schedule_with_an_id_updates_instead_of_creating(
@@ -147,7 +216,6 @@ async def test_set_schedule_with_an_id_updates_instead_of_creating(
         "set_schedule",
         {
             "entity_id": ENTITY,
-            "area": 0,
             "time": "06:00:00",
             "days_of_week": [1],
             "id": "42",
@@ -166,7 +234,7 @@ async def test_set_schedule_enabled_defaults_to_true(hass: HomeAssistant, mqtt_m
     await hass.services.async_call(
         DOMAIN,
         "set_schedule",
-        {"entity_id": ENTITY, "area": 0, "time": "06:00:00", "days_of_week": [1]},
+        {"entity_id": ENTITY, "time": "06:00:00", "days_of_week": [1]},
         blocking=True,
     )
 
