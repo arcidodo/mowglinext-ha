@@ -87,10 +87,12 @@ async def test_one_switch_per_schedule_reflecting_enabled(
     ]
     first = hass.states.get("switch.mowgli_schedule_1")
     assert first.state == "on"
-    assert first.name == "Mowgli Schedule Achter 17:30"
+    # Named by time only: the mower ignores a schedule's "area" and mows every area,
+    # so even a known area name ("Achter" for area 0) must not appear.
+    assert first.name == "Mowgli Schedule 17:30"
     second = hass.states.get("switch.mowgli_schedule_2")
     assert second.state == "off"
-    assert second.name == "Mowgli Schedule Area 1 09:00"  # area 1 has no known name
+    assert second.name == "Mowgli Schedule 09:00"
 
 
 async def test_attributes_feed_the_lawn_mower_card_schedules_panel(
@@ -105,8 +107,8 @@ async def test_attributes_feed_the_lawn_mower_card_schedules_panel(
 
     attrs = hass.states.get("switch.mowgli_schedule_1").attributes
     assert attrs["schedule_control"] is True
-    assert attrs["name"] == "Achter 17:30"
-    assert attrs["map_label"] == "Achter"
+    assert attrs["name"] == "Schedule 17:30"
+    assert "map_label" not in attrs
     assert attrs["weekdays"] == ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
     assert attrs["start_times"] == ["17:30"]
     assert attrs["schedule_id"] == "1790146100949054310"

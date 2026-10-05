@@ -162,15 +162,14 @@ class MowglinextScheduleSwitch(MowglinextEntity, SwitchEntity):
                 return sched
         return None
 
-    def _label(self, sched: dict) -> str:
-        area = sched.get("area")
-        area_name = self.hub.area_name(area) or (f"Area {area}" if area is not None else "")
-        return " ".join(part for part in (area_name, sched.get("time") or "") if part)
-
     @property
     def name(self) -> str:
+        # Named by time only, never by the schedule's "area": the mower's scheduler
+        # ignores that field and always mows every area (a plain COMMAND_START; its own
+        # GUI labels each schedule "applies to all areas").
         sched = self._schedule()
-        return f"Schedule {self._label(sched)}".strip() if sched else "Schedule"
+        time = sched.get("time") if sched else None
+        return f"Schedule {time}" if time else "Schedule"
 
     @property
     def available(self) -> bool:
@@ -194,12 +193,10 @@ class MowglinextScheduleSwitch(MowglinextEntity, SwitchEntity):
         attributes: dict[str, Any] = {
             # Read by the lawn-mower-card to list this switch in its Schedules panel.
             "schedule_control": True,
-            "name": self._label(sched),
-            "map_label": self.hub.area_name(sched.get("area")),
+            "name": self.name,
             "weekdays": [_WEEKDAY_NAMES[d] for d in valid_days],
             "start_times": [sched["time"]] if sched.get("time") else [],
             "schedule_id": self.schedule_id,
-            "area": sched.get("area"),
             "time": sched.get("time"),
             "days_of_week": days,
         }

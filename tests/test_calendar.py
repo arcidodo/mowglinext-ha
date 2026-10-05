@@ -2,8 +2,8 @@
 
 The "Schedules" sensor (test_schedules.py) already covers the raw data; these
 tests focus on the day-by-day occurrence expansion this entity does on top of
-it -- weekday matching, disabled schedules being excluded, and area-name
-lookup from <prefix>/areas.
+it -- weekday matching, disabled schedules being excluded, and an event title
+that does not claim a single area (the mower's scheduler always mows them all).
 """
 import json
 
@@ -102,7 +102,9 @@ async def test_calendar_excludes_disabled_schedules(hass: HomeAssistant, mqtt_mo
     assert events == []
 
 
-async def test_calendar_summary_uses_the_area_name(hass: HomeAssistant, mqtt_mock) -> None:
+async def test_calendar_summary_never_names_an_area(hass: HomeAssistant, mqtt_mock) -> None:
+    # The mower's scheduler ignores a schedule's "area" and always mows every area,
+    # so even a known area name must not become the event title.
     await _setup_entry(hass, mqtt_mock)
     await _make_available(hass)
     async_fire_mqtt_message(hass, "mowgli/areas", json.dumps([{"index": 0, "name": "Back Garden"}]))
@@ -124,32 +126,7 @@ async def test_calendar_summary_uses_the_area_name(hass: HomeAssistant, mqtt_moc
     events = await _entity(hass).async_get_events(hass, start, end)
 
     assert len(events) == 1
-    assert events[0].summary == "Back Garden"
-
-
-async def test_calendar_falls_back_to_a_generic_name_without_an_area_list(
-    hass: HomeAssistant, mqtt_mock
-) -> None:
-    await _setup_entry(hass, mqtt_mock)
-    await _make_available(hass)
-    async_fire_mqtt_message(
-        hass,
-        "mowgli/schedules",
-        json.dumps(
-            {
-                "schedules": [
-                    {"id": "1", "area": 2, "time": "06:00", "daysOfWeek": [1], "enabled": True}
-                ]
-            }
-        ),
-    )
-    await hass.async_block_till_done()
-
-    start = dt_util.as_utc(dt_util.parse_datetime("2026-09-28T00:00:00"))
-    end = start + __import__("datetime").timedelta(days=1)
-    events = await _entity(hass).async_get_events(hass, start, end)
-
-    assert events[0].summary == "Area 2"
+    assert events[0].summary == "Mowing (all areas)"
 
 
 async def test_calendar_event_state_is_the_next_upcoming_occurrence(

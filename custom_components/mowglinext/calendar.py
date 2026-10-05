@@ -24,6 +24,11 @@ from .entity import MowglinextEntity
 # a calendar grid, not a claim about how long mowing actually takes.
 _EVENT_DURATION = timedelta(hours=1)
 
+# Not the schedule's "area": the mower's scheduler ignores it and always starts a
+# full mow of every area (a plain COMMAND_START -- its own GUI labels each schedule
+# "applies to all areas"), so an area name here would claim something that won't happen.
+_EVENT_SUMMARY = "Mowing (all areas)"
+
 # How far ahead `event` (the entity's own state: "the next occurrence") looks
 # before giving up and reporting none scheduled.
 _UPCOMING_WINDOW = timedelta(days=14)
@@ -54,11 +59,6 @@ class MowglinextSchedulesCalendar(MowglinextEntity, CalendarEntity):
 
     def _schedules(self) -> list[dict]:
         return (self.hub.data.get("schedules") or {}).get("schedules") or []
-
-    def _area_name(self, area: int | None) -> str:
-        if name := self.hub.area_name(area):
-            return name
-        return f"Area {area}" if area is not None else "Mowgli"
 
     def _occurrences(self, start: datetime, end: datetime) -> list[CalendarEvent]:
         """Every (schedule, day) pair whose event overlaps [start, end).
@@ -97,7 +97,7 @@ class MowglinextSchedulesCalendar(MowglinextEntity, CalendarEntity):
                             CalendarEvent(
                                 start=event_start,
                                 end=event_end,
-                                summary=self._area_name(sched.get("area")),
+                                summary=_EVENT_SUMMARY,
                                 description=f"MowgliNext schedule {sched.get('id')}",
                                 uid=f"{sched.get('id')}-{day.isoformat()}",
                             )

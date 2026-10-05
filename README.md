@@ -127,16 +127,18 @@ mower too).
   going to run without reading a sensor attribute. Each enabled schedule is expanded into one event
   per matching weekday within whatever range the calendar view asks for; the block shown (1 hour)
   is only for visibility — the schedule itself has no end time, and the mow actually ends whenever
-  the area finishes. The event's title is the area's name (from `<prefix>/areas`) when known, else
-  "Area <index>". The entity's own state is the next upcoming occurrence.
-- One `switch` per schedule (`switch.mowgli_schedule_1`, `_2`, …, named after its area and time,
-  e.g. "Schedule Achter 17:30"): on = the schedule is enabled. Turning one off pauses that schedule
-  without deleting it (e.g. to skip tomorrow's mow); turning it on again resumes it. The switch
+  the area finishes. The event's title is "Mowing (all areas)", not an area name: the mower's
+  scheduler ignores a schedule's `area` field and always starts a full mow of every area (its own
+  GUI labels each schedule "applies to all areas"). The entity's own state is the next upcoming
+  occurrence.
+- One `switch` per schedule (`switch.mowgli_schedule_1`, `_2`, …, named after its start time,
+  e.g. "Schedule 17:30" — not its area, for the same reason as the calendar): on = the schedule
+  is enabled. Turning one off pauses that schedule without deleting it (e.g. to skip tomorrow's mow); turning it on again resumes it. The switch
   republishes the schedule unchanged except for `enabled` on `<prefix>/schedules/set`, and its state
   follows what the mower publishes back on `<prefix>/schedules` (not the command), so a toggle the
   mower rejected does not show as done. Switches appear and disappear as schedules are added or
   deleted, here or in the mower's GUI; a new schedule takes the lowest free number, and an existing
-  switch keeps its entity id. Their attributes (`schedule_control`, `name`, `map_label`, `weekdays`,
+  switch keeps its entity id. Their attributes (`schedule_control`, `name`, `weekdays`,
   `start_times`) are what [lovelace-lawn-mower-card](https://github.com/EvotecIT/lovelace-lawn-mower-card)
   reads to list them in its **Schedules** panel — it finds them on its own for the
   `lawn_mower.mowgli` entity, no extra card configuration needed.
