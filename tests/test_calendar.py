@@ -2,8 +2,8 @@
 
 The "Schedules" sensor (test_schedules.py) already covers the raw data; these
 tests focus on the day-by-day occurrence expansion this entity does on top of
-it -- weekday matching, disabled schedules being excluded, and area-name
-lookup from <prefix>/areas.
+it -- weekday matching, disabled schedules being excluded, and the event title
+naming the schedule's area (by its stable areaId) or "all areas".
 """
 import json
 
@@ -102,54 +102,38 @@ async def test_calendar_excludes_disabled_schedules(hass: HomeAssistant, mqtt_mo
     assert events == []
 
 
-async def test_calendar_summary_uses_the_area_name(hass: HomeAssistant, mqtt_mock) -> None:
-    await _setup_entry(hass, mqtt_mock)
-    await _make_available(hass)
-    async_fire_mqtt_message(hass, "mowgli/areas", json.dumps([{"index": 0, "name": "Back Garden"}]))
-    async_fire_mqtt_message(
-        hass,
-        "mowgli/schedules",
-        json.dumps(
-            {
-                "schedules": [
-                    {"id": "1", "area": 0, "time": "06:00", "daysOfWeek": [1], "enabled": True}
-                ]
-            }
-        ),
-    )
+async def _summaries(hass: HomeAssistant, schedule: dict) -> list[str]:
+    async_fire_mqtt_message(hass, "mowgli/schedules", json.dumps({"schedules": [schedule]}))
     await hass.async_block_till_done()
-
     start = dt_util.as_utc(dt_util.parse_datetime("2026-09-28T00:00:00"))
     end = start + __import__("datetime").timedelta(days=1)
-    events = await _entity(hass).async_get_events(hass, start, end)
-
-    assert len(events) == 1
-    assert events[0].summary == "Back Garden"
+    return [e.summary for e in await _entity(hass).async_get_events(hass, start, end)]
 
 
-async def test_calendar_falls_back_to_a_generic_name_without_an_area_list(
-    hass: HomeAssistant, mqtt_mock
-) -> None:
+async def test_calendar_summary_names_the_scheduled_area(hass: HomeAssistant, mqtt_mock) -> None:
     await _setup_entry(hass, mqtt_mock)
     await _make_available(hass)
     async_fire_mqtt_message(
         hass,
-        "mowgli/schedules",
-        json.dumps(
-            {
-                "schedules": [
-                    {"id": "1", "area": 2, "time": "06:00", "daysOfWeek": [1], "enabled": True}
-                ]
-            }
-        ),
+        "mowgli/areas",
+        json.dumps([{"index": 0, "name": "Front", "id": 11}, {"index": 2, "name": "Back Garden", "id": 7}]),
     )
-    await hass.async_block_till_done()
+    base = {"id": "1", "time": "06:00", "daysOfWeek": [1], "enabled": True}
 
-    start = dt_util.as_utc(dt_util.parse_datetime("2026-09-28T00:00:00"))
-    end = start + __import__("datetime").timedelta(days=1)
-    events = await _entity(hass).async_get_events(hass, start, end)
+    # Resolved by the stable id, not by the index.
+    assert await _summaries(hass, {**base, "areaId": 7, "areaName": "Old name"}) == ["Back Garden"]
+    # An area that no longer exists keeps the schedule's own snapshot.
+    assert await _summaries(hass, {**base, "areaId": 99, "areaName": "Gone"}) == ["Gone"]
 
-    assert events[0].summary == "Area 2"
+
+async def test_calendar_summary_for_all_areas(hass: HomeAssistant, mqtt_mock) -> None:
+    await _setup_entry(hass, mqtt_mock)
+    await _make_available(hass)
+    base = {"id": "1", "time": "06:00", "daysOfWeek": [1], "enabled": True}
+
+    assert await _summaries(hass, {**base, "areaId": 0}) == ["Mowing (all areas)"]
+    # Older mower software: only an `area` index its scheduler ignored -> all areas.
+    assert await _summaries(hass, {**base, "area": 0}) == ["Mowing (all areas)"]
 
 
 async def test_calendar_event_state_is_the_next_upcoming_occurrence(

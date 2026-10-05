@@ -297,9 +297,15 @@ class MowglinextHub:
         """
         await mqtt.async_publish(self.hass, self._topic("start_area"), str(int(index)))
 
+    @property
+    def schedules(self) -> list[dict[str, Any]]:
+        """The current <prefix>/schedules list (empty until it has arrived)."""
+        return (self.data.get("schedules") or {}).get("schedules") or []
+
     async def async_set_schedule(
         self,
-        area: int,
+        area_id: int,
+        area_name: str | None,
         time: str,
         days_of_week: list[int],
         enabled: bool,
@@ -307,18 +313,25 @@ class MowglinextHub:
     ) -> None:
         """Fire-and-forget: create a schedule (schedule_id absent/unknown) or
         update one (an existing schedule_id) -- see docs/MQTT_CONTROL.md's
-        <prefix>/schedules/set. Same fire-and-forget contract as the other
-        commands: watch <prefix>/schedules (the "schedules" sensor) to confirm
-        it took effect, and to read back the id a create was assigned.
+        <prefix>/schedules/set. area_id is the area's stable id from
+        <prefix>/areas, 0 for all areas. Same fire-and-forget contract as the
+        other commands: watch <prefix>/schedules (the "schedules" sensor) to
+        confirm it took effect, and to read back the id a create was assigned.
         """
         payload: dict[str, Any] = {
-            "area": area,
+            "areaId": area_id,
             "time": time,
             "daysOfWeek": days_of_week,
             "enabled": enabled,
         }
+        if area_id and area_name:
+            payload["areaName"] = area_name
         if schedule_id:
             payload["id"] = schedule_id
+        await self.async_publish_schedule(payload)
+
+    async def async_publish_schedule(self, payload: dict[str, Any]) -> None:
+        """Publish a complete schedule record on <prefix>/schedules/set."""
         await mqtt.async_publish(self.hass, self._topic("schedules/set"), json.dumps(payload))
 
     async def async_delete_schedule(self, schedule_id: str) -> None:

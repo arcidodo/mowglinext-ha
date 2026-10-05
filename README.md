@@ -112,23 +112,45 @@ mower too).
 - A "Schedules" sensor and two services, `mowglinext.set_schedule` / `mowglinext.delete_schedule`,
   for the mower's own mowing schedules — these live only in the mower's GUI, with no ROS2
   representation at all, so the mower's own GUI backend (not `mqtt_bridge_node`) publishes and
-  accepts them on the same broker. The sensor's state is how many schedules are enabled, and its
-  `schedules` attribute is the full list (`id`, `area`, `time`, `daysOfWeek`, `enabled`, and
-  `lastRun`/`lastSkipReason` if the scheduler has skipped a due run for wet soil) — read it in a
-  template or automation. `set_schedule` creates a schedule (leave `id` empty) or updates one (an
-  existing `id`, found in the sensor's attributes); `delete_schedule` removes one by `id`. A
-  schedule created or edited this way is executed by the mower's own scheduler exactly like one
-  created in its GUI, and vice versa — one set of schedules, editable from either place.
-  **A due, enabled schedule starts the mower unattended**, exactly like `lawn_mower.start_mowing`;
-  needs a mower release that publishes `<prefix>/schedules` (older mower software: the sensor
-  reads 0 schedules and the services silently do nothing).
+  accepts them on the same broker. A schedule mows **one area or all of them**: `areaId` is the
+  area's stable id (the `id` in `<prefix>/areas`, which survives edits to other areas), `0` means
+  all areas, and `areaName` is a label snapshot. The sensor's state is how many schedules are
+  enabled, and its `schedules` attribute is the full list (`id`, `areaId`, `areaName`, `time`,
+  `daysOfWeek`, `enabled`, and `lastRun`/`lastSkipReason` if the scheduler skipped a due run, e.g.
+  for wet soil or a removed area) — read it in a template or automation. `set_schedule` creates a
+  schedule (leave `id` empty) or updates one (an existing `id`, found in the sensor's attributes);
+  its `area` is the area's **name** (as in the "Area to start" selector), resolved to its stable id
+  from the latest `<prefix>/areas` — leave it empty for all areas. `delete_schedule` removes one by
+  `id`. The mower refuses two enabled schedules that start less than 60 minutes apart on a shared
+  weekday; it only logs that, so `set_schedule` and the switches below check the same rule first and
+  refuse with the reason. A schedule created or edited this way is executed by the mower's own
+  scheduler exactly like one created in its GUI, and vice versa — one set of schedules, editable
+  from either place. **A due, enabled schedule starts the mower unattended**, exactly like
+  `lawn_mower.start_mowing`; needs a mower release that publishes `<prefix>/schedules` (older mower
+  software: the sensor reads 0 schedules and the services silently do nothing). Per-area schedules
+  need a mower release whose scheduler understands `areaId` and whose `<prefix>/areas` publishes
+  `id`; on older software every schedule mows all areas, and is shown that way.
 - A `calendar` entity ("Mowing schedule") showing the same schedules as actual calendar events —
   open it from the Calendar dashboard, or add it to any calendar card, to see when the mower is
   going to run without reading a sensor attribute. Each enabled schedule is expanded into one event
   per matching weekday within whatever range the calendar view asks for; the block shown (1 hour)
   is only for visibility — the schedule itself has no end time, and the mow actually ends whenever
-  the area finishes. The event's title is the area's name (from `<prefix>/areas`) when known, else
-  "Area <index>". The entity's own state is the next upcoming occurrence.
+  the area finishes. The event's title is the scheduled area's current name (or the schedule's own
+  `areaName` if that area was removed), or "Mowing (all areas)". The entity's own state is the next
+  upcoming occurrence.
+- One `switch` per schedule (`switch.mowgli_schedule_1`, `_2`, …, named after its area and start
+  time, e.g. "Schedule Achter 17:30" or "Schedule All areas 09:00"): on = the schedule is enabled.
+  Turning one off pauses that schedule without deleting it (e.g. to skip tomorrow's mow); turning it
+  on again resumes it. The switch sends the schedule back on `<prefix>/schedules/set` exactly as the
+  mower published it except for `enabled` — including `areaId`/`areaName`, so a per-area schedule
+  stays per-area — and its state follows what the mower publishes back on `<prefix>/schedules` (not
+  the command), so a toggle the mower rejected does not show as done. Switches appear and disappear
+  as schedules are added or deleted, here or in the mower's GUI; a new schedule takes the lowest
+  free number, and an existing switch keeps its entity id. Their attributes (`schedule_control`,
+  `name`, `map_label`, `weekdays`, `start_times`) are what
+  [lovelace-lawn-mower-card](https://github.com/EvotecIT/lovelace-lawn-mower-card) reads to list them
+  in its **Schedules** panel — it finds them on its own for the `lawn_mower.mowgli` entity, no extra
+  card configuration needed.
 - Availability tracking via `<prefix>/available` (the broker's own Last Will and Testament) **and**
   a freshness watchdog on `<prefix>/high_level_status`: that topic is republished at a steady ~1 Hz
   by the mower's behavior tree, so if no update arrives for 10 seconds the integration marks itself

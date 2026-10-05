@@ -15,6 +15,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.util import dt as dt_util
 
+from . import schedules
 from .const import DOMAIN
 from .coordinator import MowglinextHub
 from .entity import MowglinextEntity
@@ -55,15 +56,6 @@ class MowglinextSchedulesCalendar(MowglinextEntity, CalendarEntity):
     def _schedules(self) -> list[dict]:
         return (self.hub.data.get("schedules") or {}).get("schedules") or []
 
-    def _area_name(self, area: int | None) -> str:
-        if area is not None:
-            for entry in self.hub.data.get("areas") or []:
-                if entry.get("index") == area:
-                    name = entry.get("name")
-                    if name:
-                        return name
-        return f"Area {area}" if area is not None else "Mowgli"
-
     def _occurrences(self, start: datetime, end: datetime) -> list[CalendarEvent]:
         """Every (schedule, day) pair whose event overlaps [start, end).
 
@@ -83,6 +75,11 @@ class MowglinextSchedulesCalendar(MowglinextEntity, CalendarEntity):
         for sched in self._schedules():
             if not sched.get("enabled"):
                 continue
+            # The area's name, or "Mowing (all areas)" for a schedule that mows them all.
+            summary = (
+                schedules.area_label(sched, self.hub.data.get("areas") or [])
+                or "Mowing (all areas)"
+            )
             time_of_day = _parse_time(sched.get("time"))
             days = _parse_days(sched.get("daysOfWeek"))
             if time_of_day is None or not days:
@@ -101,7 +98,7 @@ class MowglinextSchedulesCalendar(MowglinextEntity, CalendarEntity):
                             CalendarEvent(
                                 start=event_start,
                                 end=event_end,
-                                summary=self._area_name(sched.get("area")),
+                                summary=summary,
                                 description=f"MowgliNext schedule {sched.get('id')}",
                                 uid=f"{sched.get('id')}-{day.isoformat()}",
                             )

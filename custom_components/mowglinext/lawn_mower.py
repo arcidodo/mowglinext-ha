@@ -16,9 +16,11 @@ from homeassistant.components.lawn_mower import (
 )
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import ServiceValidationError
 from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers.entity_platform import AddEntitiesCallback, async_get_current_platform
 
+from . import schedules
 from .const import (
     COMMAND_HOME,
     COMMAND_START,
@@ -33,7 +35,6 @@ from .coordinator import MowglinextHub
 from .entity import MowglinextEntity
 
 _DAY_OF_WEEK = vol.All(vol.Coerce(int), vol.Range(min=0, max=6))
-_AREA_INDEX = vol.All(vol.Coerce(int), vol.Range(min=0))
 
 SERVICE_SET_SCHEDULE = "set_schedule"
 SERVICE_DELETE_SCHEDULE = "delete_schedule"
@@ -52,8 +53,8 @@ async def async_setup_entry(
     platform.async_register_entity_service(
         SERVICE_SET_SCHEDULE,
         {
-            vol.Required("area"): _AREA_INDEX,
             vol.Required("time"): cv.time,
+            vol.Optional("area"): vol.Any(None, cv.string),
             vol.Required("days_of_week"): vol.All(cv.ensure_list, [_DAY_OF_WEEK]),
             vol.Optional("enabled", default=True): cv.boolean,
             vol.Optional("id"): cv.string,
@@ -131,18 +132,34 @@ class MowglinextLawnMower(MowglinextEntity, LawnMowerEntity):
 
     async def async_set_schedule(
         self,
-        area: int,
         time: object,
         days_of_week: list[int],
+        area: str | None = None,
         enabled: bool = True,
         id: str | None = None,  # noqa: A002 - matches the service field name
     ) -> None:
         """mowglinext.set_schedule: create (no id, or an unknown one) or
         update (an existing id) a mowing schedule -- see the "Schedules"
-        sensor for the current list and the ids it assigns on create."""
+        sensor for the current list and the ids it assigns on create.
+
+        `area` is the area's NAME (resolved to its stable id from the freshest
+        <prefix>/areas); omitted, empty or "all" mows every area."""
+        try:
+            area_id, area_name = schedules.resolve_area(area, self.hub.data.get("areas") or [])
+        except ValueError as err:
+            raise ServiceValidationError(str(err)) from err
+        candidate = {
+            "id": id,
+            "time": time.strftime("%H:%M"),
+            "daysOfWeek": days_of_week,
+            "enabled": enabled,
+        }
+        if other := schedules.find_overlap(candidate, self.hub.schedules):
+            raise ServiceValidationError(schedules.overlap_message(other))
         await self.hub.async_set_schedule(
-            area=area,
-            time=time.strftime("%H:%M"),
+            area_id=area_id,
+            area_name=area_name,
+            time=candidate["time"],
             days_of_week=days_of_week,
             enabled=enabled,
             schedule_id=id,

@@ -9,17 +9,6 @@ set_schedule:
       integration: mowglinext
       domain: lawn_mower
   fields:
-    area:
-      name: Area
-      description: >-
-        The recorded area's index, from the "index" shown for it on the mower
-        (the same index space docs/MQTT_CONTROL.md's <prefix>/areas uses).
-      required: true
-      example: 0
-      selector:
-        number:
-          min: 0
-          mode: box
     time:
       name: Time
       description: Time of day the schedule starts.
@@ -27,6 +16,16 @@ set_schedule:
       example: "06:00"
       selector:
         time:
+    area:
+      name: Area
+      description: >-
+        The name of the recorded area this schedule mows (as shown in the
+        "Area to start" selector). Leave empty to mow all areas. Stored by the
+        area's stable id, so later edits to other areas do not retarget it.
+      required: false
+      example: "Achter"
+      selector:
+        text:
     days_of_week:
       name: Days of week
       description: Which days this schedule runs on.
@@ -52,7 +51,9 @@ set_schedule:
               value: "6"
     enabled:
       name: Enabled
-      description: Whether the schedule is active.
+      description: >-
+        Whether the schedule is active. Two enabled schedules sharing a weekday
+        must start at least 60 minutes apart; an overlapping one is refused.
       required: false
       default: true
       selector:
