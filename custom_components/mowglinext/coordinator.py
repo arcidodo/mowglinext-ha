@@ -256,6 +256,15 @@ class MowglinextHub:
         self.map_focus_active = focus
         self._notify("map_focus_active")
 
+    def area_name(self, area: int | None) -> str | None:
+        """The recorded area's name from the current <prefix>/areas, or None if unknown."""
+        if area is None:
+            return None
+        for entry in self.data.get("areas") or []:
+            if entry.get("index") == area and entry.get("name"):
+                return entry["name"]
+        return None
+
     @property
     def configuration_url(self) -> str:
         """The device page's "Visit" link: the mower's own GUI when a host is known

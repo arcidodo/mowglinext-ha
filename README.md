@@ -129,6 +129,17 @@ mower too).
   is only for visibility — the schedule itself has no end time, and the mow actually ends whenever
   the area finishes. The event's title is the area's name (from `<prefix>/areas`) when known, else
   "Area <index>". The entity's own state is the next upcoming occurrence.
+- One `switch` per schedule (`switch.mowgli_schedule_1`, `_2`, …, named after its area and time,
+  e.g. "Schedule Achter 17:30"): on = the schedule is enabled. Turning one off pauses that schedule
+  without deleting it (e.g. to skip tomorrow's mow); turning it on again resumes it. The switch
+  republishes the schedule unchanged except for `enabled` on `<prefix>/schedules/set`, and its state
+  follows what the mower publishes back on `<prefix>/schedules` (not the command), so a toggle the
+  mower rejected does not show as done. Switches appear and disappear as schedules are added or
+  deleted, here or in the mower's GUI; a new schedule takes the lowest free number, and an existing
+  switch keeps its entity id. Their attributes (`schedule_control`, `name`, `map_label`, `weekdays`,
+  `start_times`) are what [lovelace-lawn-mower-card](https://github.com/EvotecIT/lovelace-lawn-mower-card)
+  reads to list them in its **Schedules** panel — it finds them on its own for the
+  `lawn_mower.mowgli` entity, no extra card configuration needed.
 - Availability tracking via `<prefix>/available` (the broker's own Last Will and Testament) **and**
   a freshness watchdog on `<prefix>/high_level_status`: that topic is republished at a steady ~1 Hz
   by the mower's behavior tree, so if no update arrives for 10 seconds the integration marks itself

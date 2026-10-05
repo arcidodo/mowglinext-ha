@@ -56,12 +56,8 @@ class MowglinextSchedulesCalendar(MowglinextEntity, CalendarEntity):
         return (self.hub.data.get("schedules") or {}).get("schedules") or []
 
     def _area_name(self, area: int | None) -> str:
-        if area is not None:
-            for entry in self.hub.data.get("areas") or []:
-                if entry.get("index") == area:
-                    name = entry.get("name")
-                    if name:
-                        return name
+        if name := self.hub.area_name(area):
+            return name
         return f"Area {area}" if area is not None else "Mowgli"
 
     def _occurrences(self, start: datetime, end: datetime) -> list[CalendarEvent]:
