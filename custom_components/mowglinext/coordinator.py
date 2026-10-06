@@ -90,6 +90,9 @@ class MowglinextHub:
         self.data: dict[str, Any] = {
             name: _JSON_TOPIC_DEFAULTS.get(name, {}) for name in JSON_TOPICS
         }
+        # Topics with at least one parsed payload -- "areas" defaults to [], which
+        # alone cannot tell "nothing received yet" from "no areas".
+        self._received: set[str] = set()
         self._listeners: dict[str, list[Callable[[], None]]] = {}
         self._unsubscribes: list[Callable[[], None]] = []
         # UI-only "armed" area name, set by the area-picker select entity and
@@ -179,6 +182,7 @@ class MowglinextHub:
                 _LOGGER.debug("Ignoring non-JSON payload on %s: %r", msg.topic, msg.payload)
                 return
             self.data[suffix] = payload
+            self._received.add(suffix)
             if suffix == HEARTBEAT_TOPIC:
                 self._last_heartbeat = time.monotonic()
                 self._notify_if_availability_changed()
@@ -296,6 +300,10 @@ class MowglinextHub:
         silently reassign every index, not just ones after the change.
         """
         await mqtt.async_publish(self.hass, self._topic("start_area"), str(int(index)))
+
+    def has_received(self, suffix: str) -> bool:
+        """True once a JSON payload has arrived on <prefix>/<suffix>."""
+        return suffix in self._received
 
     @property
     def schedules(self) -> list[dict[str, Any]]:

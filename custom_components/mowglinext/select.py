@@ -9,12 +9,14 @@ there is no persistent "selected area" state on the mower itself.
 from __future__ import annotations
 
 import logging
+from typing import Any
 
 from homeassistant.components.select import SelectEntity
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import EntityCategory
+from homeassistant.const import EntityCategory, Platform
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
+from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.restore_state import RestoreEntity
 
@@ -61,6 +63,19 @@ class MowglinextAreaSelect(MowglinextEntity, SelectEntity):
     def options(self) -> list[str]:
         areas = self.hub.data.get("areas") or []
         return [area["name"] for area in areas if "name" in area]
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        # Lets dashboards (lovelace-lawn-mower-card) find this picker and the
+        # button that starts the armed area, without the user wiring them up.
+        # Looked up in the registry so a renamed button still resolves.
+        start_entity = er.async_get(self.hass).async_get_entity_id(
+            Platform.BUTTON, DOMAIN, f"{self.hub.device_id}_start_selected_area"
+        )
+        attributes: dict[str, Any] = {"area_control": True}
+        if start_entity:
+            attributes["start_entity"] = start_entity
+        return attributes
 
     @property
     def current_option(self) -> str | None:

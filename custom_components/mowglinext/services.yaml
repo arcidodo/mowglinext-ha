@@ -83,3 +83,23 @@ delete_schedule:
       example: "1758901234567890000"
       selector:
         text:
+
+start_area:
+  name: Start area
+  description: >-
+    Start mowing one recorded area now. Same as pressing that area's
+    "Mow <area>" button.
+  target:
+    entity:
+      integration: mowglinext
+      domain: lawn_mower
+  fields:
+    area:
+      name: Area
+      description: >-
+        The recorded area's name (as shown in the "Area to start" selector).
+        Resolved to the area's current position on the mower at call time.
+      required: true
+      example: "Achter"
+      selector:
+        text:

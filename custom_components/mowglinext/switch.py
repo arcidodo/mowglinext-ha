@@ -16,7 +16,7 @@ from typing import Any
 from homeassistant.components.switch import SwitchEntity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import STATE_ON, EntityCategory, Platform
-from homeassistant.core import HomeAssistant, callback
+from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
@@ -25,6 +25,7 @@ from homeassistant.helpers.restore_state import RestoreEntity
 from . import schedules
 from .const import DOMAIN
 from .coordinator import MowglinextHub
+from .dynamic import async_track_list_entities, mower_object_id
 from .entity import MowglinextEntity
 
 # Indexed by daysOfWeek (0=Sunday..6=Saturday); the "weekdays" attribute lists them
@@ -38,65 +39,38 @@ async def async_setup_entry(
     hub: MowglinextHub = hass.data[DOMAIN][entry.entry_id]
     async_add_entities([MowglinextMapFocusSwitch(hub)])
 
-    registry = er.async_get(hass)
-    unique_id_prefix = f"{hub.device_id}_schedule_"
-    added: set[str] = set()
-
-    @callback
-    def _sync_schedule_switches() -> None:
+    def _schedule_ids() -> list[str] | None:
         payload = hub.data.get("schedules") or {}
         if not isinstance(payload.get("schedules"), list):
-            # Nothing received yet (or an older mower that never publishes the
-            # topic): keep whatever the registry has, rather than pruning every
-            # schedule switch on each Home Assistant start before the retained
-            # list has arrived.
-            return
-        current = {str(s["id"]) for s in payload["schedules"] if s.get("id") is not None}
+            return None  # nothing received yet, or an older mower without the topic
+        return [str(s["id"]) for s in payload["schedules"] if s.get("id") is not None]
 
-        # Removing the registry entry also removes a live entity; this covers the
-        # ones added this session and leftovers of schedules deleted while Home
-        # Assistant was not running.
-        for reg_entry in er.async_entries_for_config_entry(registry, hub.entry.entry_id):
-            if (
-                reg_entry.domain == Platform.SWITCH
-                and reg_entry.unique_id.startswith(unique_id_prefix)
-                and reg_entry.unique_id.removeprefix(unique_id_prefix) not in current
-            ):
-                registry.async_remove(reg_entry.entity_id)
-        added.intersection_update(current)
-
-        new = [
-            MowglinextScheduleSwitch(hub, schedule_id)
-            for schedule_id in sorted(current - added)
-        ]
-        if not new:
-            return
-        prefix = _mower_object_id(hass, hub)
+    def _create(schedule_ids: list[str]) -> list[MowglinextScheduleSwitch]:
+        registry = er.async_get(hass)
+        prefix = mower_object_id(hass, hub)
         taken: set[str] = set()
-        for switch in new:
-            existing = registry.async_get_entity_id(
-                Platform.SWITCH, DOMAIN, switch.unique_id
-            )
-            switch.entity_id = existing or _free_entity_id(hass, prefix, taken)
+        switches = []
+        for schedule_id in schedule_ids:
+            switch = MowglinextScheduleSwitch(hub, schedule_id)
+            existing = registry.async_get_entity_id(Platform.SWITCH, DOMAIN, switch.unique_id)
+            switch.entity_id = existing or _free_schedule_entity_id(hass, prefix, taken)
             taken.add(switch.entity_id)
-            added.add(switch.schedule_id)
-        async_add_entities(new)
+            switches.append(switch)
+        return switches
 
-    entry.async_on_unload(hub.async_add_listener("schedules", _sync_schedule_switches))
-    _sync_schedule_switches()  # a retained <prefix>/schedules that already arrived
-
-
-def _mower_object_id(hass: HomeAssistant, hub: MowglinextHub) -> str:
-    """The lawn_mower entity's object id ("mowgli"), so the schedule switches are named
-    after it: the lawn-mower-card finds a mower's schedule switches by that prefix."""
-    registry = er.async_get(hass)
-    for reg_entry in er.async_entries_for_config_entry(registry, hub.entry.entry_id):
-        if reg_entry.domain == Platform.LAWN_MOWER:
-            return reg_entry.entity_id.split(".", 1)[1]
-    return "mowgli"
+    async_track_list_entities(
+        hass,
+        hub,
+        async_add_entities,
+        platform=Platform.SWITCH,
+        topic="schedules",
+        unique_id_prefix="schedule_",
+        current_keys=_schedule_ids,
+        create=_create,
+    )
 
 
-def _free_entity_id(hass: HomeAssistant, prefix: str, taken: set[str]) -> str:
+def _free_schedule_entity_id(hass: HomeAssistant, prefix: str, taken: set[str]) -> str:
     """switch.<mower>_schedule_<n> with the lowest n not in use — the schedule's own id
     is a 19-digit timestamp, unreadable in an entity id."""
     registry = er.async_get(hass)

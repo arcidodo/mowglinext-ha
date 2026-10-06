@@ -150,3 +150,20 @@ async def test_press_with_armed_area_no_longer_in_list_raises(
             {"entity_id": "button.mowgli_start_selected_area"},
             blocking=True,
         )
+
+
+async def test_area_select_points_dashboards_at_start_button(
+    hass: HomeAssistant, mqtt_mock
+) -> None:
+    await _setup_entry(hass, mqtt_mock)
+    await _make_available(hass)
+    async_fire_mqtt_message(
+        hass,
+        "mowgli/areas",
+        json.dumps([{"index": 0, "name": "Front Lawn"}, {"index": 2, "name": "Back Garden"}]),
+    )
+    await hass.async_block_till_done()
+
+    attributes = hass.states.get("select.mowgli_area_to_start").attributes
+    assert attributes["area_control"] is True
+    assert attributes["start_entity"] == "button.mowgli_start_selected_area"
