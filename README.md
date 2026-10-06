@@ -109,6 +109,9 @@ mower too).
   so the button always re-resolves the area's index from the freshest list at the moment it's
   pressed — never a value cached from when it was picked — and refuses (with a visible error) rather
   than risk starting the wrong area if the name has since disappeared from the list.
+  The select carries `area_control: true` and `start_entity` (the button's entity id), so
+  [lovelace-lawn-mower-card](https://github.com/EvotecIT/lovelace-lawn-mower-card) can offer an
+  area menu on its Start button without extra configuration.
 - One `button` per recorded area ("Mow Achter", `button.mowgli_mow_achter`, …): one press starts
   mowing that area — put them on any dashboard for a one-tap "mow this area". They are keyed by the
   area's stable `id` from `<prefix>/areas`, so a button keeps pointing at the same area through
