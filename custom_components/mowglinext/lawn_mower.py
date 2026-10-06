@@ -38,6 +38,7 @@ _DAY_OF_WEEK = vol.All(vol.Coerce(int), vol.Range(min=0, max=6))
 
 SERVICE_SET_SCHEDULE = "set_schedule"
 SERVICE_DELETE_SCHEDULE = "delete_schedule"
+SERVICE_START_AREA = "start_area"
 
 
 async def async_setup_entry(
@@ -60,6 +61,11 @@ async def async_setup_entry(
             vol.Optional("id"): cv.string,
         },
         "async_set_schedule",
+    )
+    platform.async_register_entity_service(
+        SERVICE_START_AREA,
+        {vol.Required("area"): cv.string},
+        "async_start_area",
     )
     platform.async_register_entity_service(
         SERVICE_DELETE_SCHEDULE,
@@ -164,6 +170,22 @@ class MowglinextLawnMower(MowglinextEntity, LawnMowerEntity):
             enabled=enabled,
             schedule_id=id,
         )
+
+    async def async_start_area(self, area: str) -> None:
+        """mowglinext.start_area: start mowing one recorded area now, by NAME.
+
+        Resolved to the area's index from the freshest <prefix>/areas at call
+        time -- the index is positional and can change with any edit to the
+        area list, so it is never taken from the caller or cached."""
+        areas = self.hub.data.get("areas") or []
+        name = area.strip()
+        match = next((a for a in areas if a.get("name") == name), None)
+        if match is None or not isinstance(match.get("index"), int):
+            known = ", ".join(f"'{a['name']}'" for a in areas if a.get("name"))
+            raise ServiceValidationError(
+                f"Unknown area '{name}' (known areas: {known or 'none received yet'})"
+            )
+        await self.hub.async_start_area(match["index"])
 
     async def async_delete_schedule(self, id: str) -> None:  # noqa: A002
         """mowglinext.delete_schedule."""

@@ -109,6 +109,15 @@ mower too).
   so the button always re-resolves the area's index from the freshest list at the moment it's
   pressed — never a value cached from when it was picked — and refuses (with a visible error) rather
   than risk starting the wrong area if the name has since disappeared from the list.
+- One `button` per recorded area ("Mow Achter", `button.mowgli_mow_achter`, …): one press starts
+  mowing that area — put them on any dashboard for a one-tap "mow this area". They are keyed by the
+  area's stable `id` from `<prefix>/areas`, so a button keeps pointing at the same area through
+  renames (its name follows; the entity id stays) and through edits that renumber the list; each
+  press resolves the area's current index for `<prefix>/start_area` from the freshest list, and
+  refuses if the area is gone. Buttons appear and disappear with the area list. Needs a mower
+  release whose `<prefix>/areas` publishes `id`; on older software there are no per-area buttons
+  (use the select + "Start selected area" above). The same is available as a service,
+  `mowglinext.start_area` with `area: <name>`, for automations and scripts.
 - A "Schedules" sensor and two services, `mowglinext.set_schedule` / `mowglinext.delete_schedule`,
   for the mower's own mowing schedules — these live only in the mower's GUI, with no ROS2
   representation at all, so the mower's own GUI backend (not `mqtt_bridge_node`) publishes and
