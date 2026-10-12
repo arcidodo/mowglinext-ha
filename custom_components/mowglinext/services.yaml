@@ -103,3 +103,27 @@ start_area:
       example: "Achter"
       selector:
         text:
+
+set_external_rain:
+  name: Set external rain
+  description: >-
+    Tell the mower that it is (or is not) raining, in addition to its own rain
+    sensor -- for example from a roof weather station or a rain forecast. Wet
+    makes the mower stop and dock according to its Rain settings; dry never
+    hides rain the mower itself feels. The mower ignores a "wet" that is not
+    refreshed within its "External rain expiry" (default 120 minutes), so call
+    this again while it is wet, e.g. from an automation that runs every 10
+    minutes. Needs a mower release that listens on <prefix>/external_rain and
+    "Use external rain source" switched on in its Rain settings.
+  target:
+    entity:
+      integration: mowglinext
+      domain: lawn_mower
+  fields:
+    raining:
+      name: Raining
+      description: On if it is raining (or about to), off if it is dry.
+      required: true
+      default: true
+      selector:
+        boolean:
