@@ -297,6 +297,20 @@ class MowglinextHub:
         """
         await mqtt.async_publish(self.hass, self._topic("start_area"), str(int(index)))
 
+    async def async_set_external_rain(self, raining: bool) -> None:
+        """Publish an external "is it raining?" verdict on <prefix>/external_rain.
+
+        The mower ORs it with its own rain sensor, so it can only ever add a reason
+        to stop -- see docs/MQTT_CONTROL.md. Retained on purpose: it is state, not an
+        operator command, and a retained value is how the last verdict survives a
+        restart of the mower's MQTT bridge. The mower ignores a "yes" that is not
+        refreshed within `external_rain_max_age_minutes` (default 120), so an
+        automation should re-publish while it is wet.
+        """
+        await mqtt.async_publish(
+            self.hass, self._topic("external_rain"), "yes" if raining else "no", retain=True
+        )
+
     @property
     def schedules(self) -> list[dict[str, Any]]:
         """The current <prefix>/schedules list (empty until it has arrived)."""

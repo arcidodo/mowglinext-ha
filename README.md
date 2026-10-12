@@ -130,6 +130,30 @@ mower too).
   software: the sensor reads 0 schedules and the services silently do nothing). Per-area schedules
   need a mower release whose scheduler understands `areaId` and whose `<prefix>/areas` publishes
   `id`; on older software every schedule mows all areas, and is shown that way.
+- A service `mowglinext.set_external_rain` (`raining: true/false`) that tells the mower it is — or
+  is not — raining, on top of its own rain sensor: say from a roof weather station or a forecast.
+  It publishes a retained `yes`/`no` on `<prefix>/external_rain`. The mower ORs it with its own
+  sensor, so it can only add a reason to stop (a `no` never hides rain the mower feels); wet makes
+  it stop and dock per its Rain settings, and it resumes once both sources read dry. The mower
+  ignores a `yes` that is not refreshed within its **External rain expiry** (default 120 min), so
+  re-call it while it is wet, e.g. from an automation that runs every 10 minutes:
+
+  ```yaml
+  triggers:
+    - trigger: state
+      entity_id: sensor.gw1200a_hourly_rain_rate
+    - trigger: time_pattern
+      minutes: "/10"
+  actions:
+    - action: mowglinext.set_external_rain
+      target:
+        entity_id: lawn_mower.mowgli
+      data:
+        raining: "{{ states('sensor.gw1200a_hourly_rain_rate') | float(0) > 0 }}"
+  ```
+
+  Needs a mower release that listens on `<prefix>/external_rain`, and "Use external rain source"
+  switched on in its Rain settings (the mower-side switch is a mower setting, not an MQTT message).
 - A `calendar` entity ("Mowing schedule") showing the same schedules as actual calendar events —
   open it from the Calendar dashboard, or add it to any calendar card, to see when the mower is
   going to run without reading a sensor attribute. Each enabled schedule is expanded into one event

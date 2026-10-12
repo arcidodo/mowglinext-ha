@@ -38,6 +38,7 @@ _DAY_OF_WEEK = vol.All(vol.Coerce(int), vol.Range(min=0, max=6))
 
 SERVICE_SET_SCHEDULE = "set_schedule"
 SERVICE_DELETE_SCHEDULE = "delete_schedule"
+SERVICE_SET_EXTERNAL_RAIN = "set_external_rain"
 
 
 async def async_setup_entry(
@@ -65,6 +66,11 @@ async def async_setup_entry(
         SERVICE_DELETE_SCHEDULE,
         {vol.Required("id"): cv.string},
         "async_delete_schedule",
+    )
+    platform.async_register_entity_service(
+        SERVICE_SET_EXTERNAL_RAIN,
+        {vol.Required("raining"): cv.boolean},
+        "async_set_external_rain",
     )
 
 
@@ -168,3 +174,10 @@ class MowglinextLawnMower(MowglinextEntity, LawnMowerEntity):
     async def async_delete_schedule(self, id: str) -> None:  # noqa: A002
         """mowglinext.delete_schedule."""
         await self.hub.async_delete_schedule(id)
+
+    async def async_set_external_rain(self, raining: bool) -> None:
+        """mowglinext.set_external_rain: tell the mower it is (or is not) raining,
+        in addition to its own rain sensor -- e.g. from a roof weather station or a
+        forecast. Wet makes it stop and dock (per its rain settings); dry never hides
+        rain the mower itself feels."""
+        await self.hub.async_set_external_rain(raining)
