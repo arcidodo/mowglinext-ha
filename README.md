@@ -166,6 +166,17 @@ mower too).
 
   Needs a mower release that listens on `<prefix>/external_rain`, and "Use external rain source"
   switched on in its Rain settings (the mower-side switch is a mower setting, not an MQTT message).
+
+  Feedback on what the mower made of it: a binary sensor **External rain** (on while the mower is
+  *counting* an external verdict right now) and a diagnostic sensor **External rain status**
+  (`No data` / `Dry` / `Wet` / `Expired` / `Disabled`), both from the mower's
+  `<prefix>/external_rain_state`. They follow the mower, not what HA last sent: a `yes` that
+  expired (not refreshed within the mower's *External rain expiry*) or that was switched off in the
+  mower's Rain settings reads off here. Attributes carry the age, the time left, the configured
+  expiry and whether the mower's **own** rain sensor is wet, so the two sources can be told apart.
+  They stay `unknown` on older mower software that does not publish the topic. While the mower is
+  docked and idle a `yes` has no visible effect on the mower itself (the rain guard lives in the
+  mowing tree) — these sensors are where you see that it arrived.
 - A `calendar` entity ("Mowing schedule") showing the same schedules as actual calendar events —
   open it from the Calendar dashboard, or add it to any calendar card, to see when the mower is
   going to run without reading a sensor attribute. Each enabled schedule is expanded into one event
