@@ -47,3 +47,16 @@ STATE_IDLE = 1
 STATE_AUTONOMOUS = 2
 STATE_RECORDING = 3
 STATE_MANUAL_MOWING = 4
+
+# HighLevelStatus.state_name values the behavior tree publishes while rain has the mower stopped,
+# docking, waiting or on its way back out (main_tree.xml's RainGuard). "Paused for rain" is on
+# for exactly these.
+RAIN_STATE_NAMES = frozenset(
+    {
+        "RAIN_DETECTED_DOCKING",
+        "RAIN_WAITING",
+        "RESUMING_AFTER_RAIN",
+        "RAIN_DOCK_FAILED",
+        "RAIN_TIMEOUT",
+    }
+)

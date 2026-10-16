@@ -177,6 +177,15 @@ mower too).
   They stay `unknown` on older mower software that does not publish the topic. While the mower is
   docked and idle a `yes` has no visible effect on the mower itself (the rain guard lives in the
   mowing tree) — these sensors are where you see that it arrived.
+
+  Two more rain entities, from data the mower already publishes: a binary sensor **Rain sensor**
+  (the mower's **own** rain sensor, `<prefix>/status.rain_detected`) and a binary sensor
+  **Paused for rain**, which is on while the mower is stopped, docking, waiting or resuming
+  **because of rain** (whichever source triggered it — its own sensor or an external verdict). It
+  follows the mower's behavior-tree state (`RAIN_DETECTED_DOCKING`, `RAIN_WAITING`,
+  `RESUMING_AFTER_RAIN`, `RAIN_DOCK_FAILED`, `RAIN_TIMEOUT`), so it is the one to use in an
+  automation such as "notify me when the mower stops for rain" or "tell me when it is mowing
+  again".
 - A `calendar` entity ("Mowing schedule") showing the same schedules as actual calendar events —
   open it from the Calendar dashboard, or add it to any calendar card, to see when the mower is
   going to run without reading a sensor attribute. Each enabled schedule is expanded into one event
