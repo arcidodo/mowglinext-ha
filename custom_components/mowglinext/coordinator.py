@@ -46,6 +46,7 @@ JSON_TOPICS: tuple[str, ...] = (
     "host",
     "schedules",
     "rtk_status",
+    "external_rain_state",
     "areas",
     "area_boundary",
     "diagnostics",

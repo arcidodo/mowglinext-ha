@@ -166,6 +166,26 @@ mower too).
 
   Needs a mower release that listens on `<prefix>/external_rain`, and "Use external rain source"
   switched on in its Rain settings (the mower-side switch is a mower setting, not an MQTT message).
+
+  Feedback on what the mower made of it: a binary sensor **External rain** (on while the mower is
+  *counting* an external verdict right now) and a diagnostic sensor **External rain status**
+  (`No data` / `Dry` / `Wet` / `Expired` / `Disabled`), both from the mower's
+  `<prefix>/external_rain_state`. They follow the mower, not what HA last sent: a `yes` that
+  expired (not refreshed within the mower's *External rain expiry*) or that was switched off in the
+  mower's Rain settings reads off here. Attributes carry the age, the time left, the configured
+  expiry and whether the mower's **own** rain sensor is wet, so the two sources can be told apart.
+  They stay `unknown` on older mower software that does not publish the topic. While the mower is
+  docked and idle a `yes` has no visible effect on the mower itself (the rain guard lives in the
+  mowing tree) — these sensors are where you see that it arrived.
+
+  Two more rain entities, from data the mower already publishes: a binary sensor **Rain sensor**
+  (the mower's **own** rain sensor, `<prefix>/status.rain_detected`) and a binary sensor
+  **Paused for rain**, which is on while the mower is stopped, docking, waiting or resuming
+  **because of rain** (whichever source triggered it — its own sensor or an external verdict). It
+  follows the mower's behavior-tree state (`RAIN_DETECTED_DOCKING`, `RAIN_WAITING`,
+  `RESUMING_AFTER_RAIN`, `RAIN_DOCK_FAILED`, `RAIN_TIMEOUT`), so it is the one to use in an
+  automation such as "notify me when the mower stops for rain" or "tell me when it is mowing
+  again".
 - A `calendar` entity ("Mowing schedule") showing the same schedules as actual calendar events —
   open it from the Calendar dashboard, or add it to any calendar card, to see when the mower is
   going to run without reading a sensor attribute. Each enabled schedule is expanded into one event

@@ -25,6 +25,7 @@ async def async_setup_entry(
             MowglinextCoverageSensor(hub),
             MowglinextGpsQualitySensor(hub),
             MowglinextRtkStatusSensor(hub),
+            MowglinextExternalRainStatusSensor(hub),
             MowglinextStateSensor(hub),
             MowglinextSchedulesSensor(hub),
         ]
@@ -125,6 +126,52 @@ class MowglinextRtkStatusSensor(MowglinextEntity, SensorEntity):
             "quality_percent": rtk.get("quality_percent"),
             "rtk_mode_name": rtk.get("rtk_mode_name"),
             "fix_valid": rtk.get("fix_valid"),
+        }
+
+
+# <prefix>/external_rain_state's `state` values (docs/MQTT_CONTROL.md) -> label for the ENUM
+# sensor below. An unknown value reads as None rather than a fabricated label.
+_EXTERNAL_RAIN_LABELS: dict[str, str] = {
+    "no_data": "No data",
+    "dry": "Dry",
+    "wet": "Wet",
+    "expired": "Expired",
+    "disabled": "Disabled",
+}
+
+
+class MowglinextExternalRainStatusSensor(MowglinextEntity, SensorEntity):
+    """What the mower makes of the external rain verdict sent on <prefix>/external_rain:
+    No data (nothing received yet), Dry, Wet (counted), Expired (a wet verdict older than the
+    mower's expiry, no longer counted) or Disabled (switched off in the mower's Rain settings).
+    Diagnostic; it only reports, it changes nothing on the mower.
+    """
+
+    _attr_name = "External rain status"
+    _attr_device_class = SensorDeviceClass.ENUM
+    _attr_options = list(_EXTERNAL_RAIN_LABELS.values())
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _attr_icon = "mdi:weather-rainy"
+    _topic_key = "external_rain_state"
+
+    def __init__(self, hub: MowglinextHub) -> None:
+        super().__init__(hub)
+        self._attr_unique_id = f"{hub.device_id}_external_rain_status"
+
+    @property
+    def native_value(self) -> str | None:
+        payload = self.hub.data.get("external_rain_state") or {}
+        return _EXTERNAL_RAIN_LABELS.get(payload.get("state"))
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        payload = self.hub.data.get("external_rain_state") or {}
+        return {
+            "counted": payload.get("active"),
+            "own_sensor_wet": payload.get("onboard_wet"),
+            "age_s": payload.get("age_s"),
+            "expires_in_s": payload.get("expires_in_s"),
+            "max_age_s": payload.get("max_age_s"),
         }
 
 
